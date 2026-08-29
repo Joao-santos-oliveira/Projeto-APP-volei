@@ -2,7 +2,14 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 
 const AuthContext = createContext(null);
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const PROD_API_URL = 'https://projeto-app-volei.onrender.com/api';
+const LOCAL_API_URL = 'http://localhost:3001/api';
+
+const API_URL = import.meta.env.VITE_API_URL || (
+  typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? LOCAL_API_URL
+    : PROD_API_URL
+);
 
 // Cores de avatar disponíveis para usuários
 export const AVATAR_COLORS = [

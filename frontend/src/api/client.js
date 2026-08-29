@@ -5,8 +5,15 @@
  */
 import { localStore } from './localStore';
 
-// Permite definir backend via env ou usar o padrão local
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const PROD_API_URL = 'https://projeto-app-volei.onrender.com/api';
+const LOCAL_API_URL = 'http://localhost:3001/api';
+
+// Conecta automaticamente ao Render na nuvem (ou localhost em ambiente de dev local)
+const API_URL = import.meta.env.VITE_API_URL || (
+  typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? LOCAL_API_URL
+    : PROD_API_URL
+);
 
 // Flag de controle para saber se o backend está acessível
 let isBackendAvailable = null;
@@ -14,7 +21,6 @@ let isBackendAvailable = null;
 async function checkBackend() {
   if (isBackendAvailable !== null) return isBackendAvailable;
   
-  // Se estiver explicitamente em modo standalone/client-only
   if (import.meta.env.VITE_STANDALONE === 'true') {
     isBackendAvailable = false;
     return false;
@@ -22,8 +28,8 @@ async function checkBackend() {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1200); // 1.2s timeout
-    const res = await fetch(`${API_URL.replace(/\/players|\/matches/, '')}/health`, {
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`${API_URL}/health`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
