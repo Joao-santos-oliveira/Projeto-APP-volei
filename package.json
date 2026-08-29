@@ -1,0 +1,12 @@
+{
+  "name": "volei-app",
+  "version": "1.0.0",
+  "description": "Sistema de Gestão de Time de Vôlei Amador",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build": "npm --prefix frontend run build",
+    "deploy:gh-pages": "npm --prefix frontend run deploy"
+  }
+}
