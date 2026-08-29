@@ -1,83 +1,179 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Users, Trophy, Activity, BarChart2, GitCompare,
-  Menu, X, Star
+  Menu, X, UsersRound, LogOut, Shield
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import Logo from '../ui/Logo';
 
 const NAV_ITEMS = [
-  { to: '/',          icon: Users,     label: 'Jogadores' },
-  { to: '/matches',   icon: Trophy,    label: 'Partidas' },
-  { to: '/history',   icon: Activity,  label: 'Histórico' },
-  { to: '/dashboard', icon: BarChart2, label: 'Dashboard' },
-  { to: '/compare',   icon: GitCompare,label: 'Comparar' },
+  { to: '/',          icon: Users,       label: 'ATLETAS',    mobileLabel: 'ATLETAS' },
+  { to: '/teams',     icon: UsersRound,  label: 'TIMES',      mobileLabel: 'TIMES' },
+  { to: '/matches',   icon: Trophy,      label: 'PARTIDAS',   mobileLabel: 'JOGOS' },
+  { to: '/history',   icon: Activity,    label: 'HISTÓRICO',  mobileLabel: 'HISTÓRICO' },
+  { to: '/dashboard', icon: BarChart2,   label: 'DASHBOARD',  mobileLabel: 'STATS' },
+  { to: '/compare',   icon: GitCompare,  label: 'COMPARAR',   mobileLabel: 'COMPARAR' },
 ];
 
 export default function Sidebar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const { user, logout } = useAuth();
   const location = useLocation();
 
   return (
     <>
-      {/* Mobile header bar */}
-      <div className="mobile-header">
-        <button className="btn btn-ghost btn-icon" onClick={() => setMobileOpen(true)}>
-          <Menu size={22} />
-        </button>
-        <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-          <div className="sidebar-logo-icon" style={{ width:32, height:32, fontSize:16 }}>🏐</div>
-          <span style={{ fontWeight:800, fontSize:15 }}>Vôlei Manager</span>
-        </div>
-      </div>
+      {/* ── Mobile Top Header Bar ── */}
+      <header className="geo-mobile-header">
+        <Logo size={24} showText={true} />
 
-      {/* Overlay */}
-      {mobileOpen && (
+        {user && (
+          <button
+            className="geo-mobile-user-trigger"
+            onClick={() => setMobileDrawerOpen(true)}
+            title="Menu do Perfil"
+          >
+            <div
+              className="geo-user-dot"
+              style={{
+                backgroundColor: `${user.avatar_color || '#E5A93C'}30`,
+                borderColor: user.avatar_color || '#E5A93C',
+                color: user.avatar_color || '#E5A93C'
+              }}
+            >
+              {user.display_name?.charAt(0).toUpperCase()}
+            </div>
+          </button>
+        )}
+      </header>
+
+      {/* ── Mobile Drawer Overlay ── */}
+      {mobileDrawerOpen && (
         <div
-          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:99 }}
-          onClick={() => setMobileOpen(false)}
+          className="geo-drawer-backdrop"
+          onClick={() => setMobileDrawerOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
-      <aside className={`sidebar${mobileOpen ? ' mobile-open' : ''}`}>
-        <div className="sidebar-logo">
-          <div className="sidebar-logo-icon">🏐</div>
-          <div>
-            <div className="sidebar-logo-text">Vôlei Manager</div>
-            <div className="sidebar-logo-sub">Gestão de Time Amador</div>
+      {/* ── Mobile Drawer ── */}
+      <div className={`geo-mobile-drawer ${mobileDrawerOpen ? 'is-open' : ''}`}>
+        <div className="geo-drawer-header">
+          <div className="geo-drawer-profile">
+            <div
+              className="geo-drawer-avatar"
+              style={{
+                backgroundColor: `${user?.avatar_color || '#E5A93C'}30`,
+                borderColor: user?.avatar_color || '#E5A93C',
+                color: user?.avatar_color || '#E5A93C'
+              }}
+            >
+              {user?.display_name?.charAt(0).toUpperCase()}
+            </div>
+            <div className="geo-drawer-user-info">
+              <span className="geo-drawer-name">{user?.display_name}</span>
+              <span className="geo-drawer-role">
+                @{user?.username} {user?.is_admin === 1 && '· ADMIN'}
+              </span>
+            </div>
           </div>
-          <button
-            className="btn btn-ghost btn-icon"
-            style={{ marginLeft:'auto', display:'none' }}
-            onClick={() => setMobileOpen(false)}
-          >
+          <button className="geo-drawer-close" onClick={() => setMobileDrawerOpen(false)}>
             <X size={18} />
           </button>
         </div>
 
-        <nav className="sidebar-nav">
-          <div className="sidebar-section-label">Menu Principal</div>
-
+        <nav className="geo-drawer-nav">
+          <div className="geo-drawer-section">MÓDULOS</div>
           {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
-              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-              onClick={() => setMobileOpen(false)}
+              className={({ isActive }) => `geo-drawer-link ${isActive ? 'active' : ''}`}
+              onClick={() => setMobileDrawerOpen(false)}
             >
-              <Icon size={18} />
-              {label}
+              <Icon size={16} />
+              <span>{label}</span>
             </NavLink>
           ))}
         </nav>
 
-        <div style={{ padding:'16px', borderTop:'1px solid var(--border)' }}>
-          <div style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center' }}>
-            v1.0.0 · Vôlei Manager
-          </div>
+        <div className="geo-drawer-footer">
+          <button className="btn btn-danger w-full btn-sm" onClick={logout}>
+            <LogOut size={14} /> ENCERRAR SESSÃO
+          </button>
         </div>
+      </div>
+
+      {/* ── Desktop Geometric Sidebar ── */}
+      <aside className="geo-desktop-sidebar">
+        {/* Brand Header */}
+        <div className="geo-sidebar-brand">
+          <Logo size={32} showText={true} />
+        </div>
+
+        {/* Links Navigation */}
+        <nav className="geo-sidebar-nav">
+          <div className="geo-nav-heading">MENU DO SISTEMA</div>
+          {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) => `geo-sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              <Icon size={16} className="geo-link-icon" />
+              <span className="geo-link-text">{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* User Card Footer */}
+        {user && (
+          <div className="geo-sidebar-user-block">
+            <div className="geo-user-profile-row">
+              <div
+                className="geo-sidebar-avatar"
+                style={{
+                  backgroundColor: `${user.avatar_color || '#E5A93C'}20`,
+                  borderColor: user.avatar_color || '#E5A93C',
+                  color: user.avatar_color || '#E5A93C'
+                }}
+              >
+                {user.display_name?.charAt(0).toUpperCase()}
+              </div>
+              <div className="geo-user-text-col">
+                <span className="geo-user-fullname">{user.display_name}</span>
+                <span className="geo-user-role-tag">
+                  {user.is_admin === 1 ? 'COMISSÃO TÉCNICA' : 'SCOUT / ATLETA'}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={logout}
+              className="geo-sidebar-logout-btn"
+              title="Encerrar Sessão"
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
+        )}
       </aside>
+
+      {/* ── Mobile Bottom Navigation Bar (Fixed - All 6 Modules) ── */}
+      <nav className="geo-mobile-bottom-bar">
+        {NAV_ITEMS.map(({ to, icon: Icon, mobileLabel }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            className={({ isActive }) => `geo-bottom-link ${isActive ? 'active' : ''}`}
+          >
+            <Icon size={17} />
+            <span className="geo-bottom-label">{mobileLabel}</span>
+          </NavLink>
+        ))}
+      </nav>
     </>
   );
 }

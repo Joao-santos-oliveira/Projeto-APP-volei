@@ -60,7 +60,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const { run, query, queryOne } = getDb();
-    const { home_team = 'Nosso Time', away_team = 'Adversário', home_players = [], away_players = [], max_sets = 5 } = req.body;
+    const { home_team = 'Equipe A', away_team = 'Equipe B', home_players = [], away_players = [], max_sets = 5 } = req.body;
 
     const r = run(
       `INSERT INTO matches (home_team, away_team, status, max_sets, created_at) VALUES (?, ?, 'live', ?, ?)`,
@@ -188,8 +188,14 @@ router.patch('/:id/finish', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const { run, queryOne } = getDb();
-    if (!queryOne('SELECT id FROM matches WHERE id = ?', [req.params.id])) return res.status(404).json({ error: 'Partida não encontrada' });
-    run('DELETE FROM matches WHERE id = ?', [req.params.id]);
+    const matchId = parseInt(req.params.id);
+    if (!queryOne('SELECT id FROM matches WHERE id = ?', [matchId])) {
+      return res.status(404).json({ error: 'Partida não encontrada' });
+    }
+    run('DELETE FROM points WHERE match_id = ?', [matchId]);
+    run('DELETE FROM sets WHERE match_id = ?', [matchId]);
+    run('DELETE FROM match_players WHERE match_id = ?', [matchId]);
+    run('DELETE FROM matches WHERE id = ?', [matchId]);
     res.json({ message: 'Partida removida' });
   } catch (err) {
     res.status(500).json({ error: err.message });

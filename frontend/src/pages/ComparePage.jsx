@@ -5,7 +5,12 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, Tooltip, Legend
 } from 'recharts';
-import { TECHNICAL_ATTRS, positionBadgeClass, getInitials } from '../utils/constants';
+import {
+  TECHNICAL_ATTRS, positionBadgeClass, getInitials,
+  getPlayerProficiencies, avgTechnical
+} from '../utils/constants';
+import PositionProficiencyBadge from '../components/players/PositionProficiencyBadge';
+import { GitCompare, Shield, ArrowRightLeft } from 'lucide-react';
 
 export default function ComparePage() {
   const [players, setPlayers] = useState([]);
@@ -17,12 +22,15 @@ export default function ComparePage() {
   useEffect(() => {
     api.getPlayers()
       .then(setPlayers)
-      .catch(() => toast('Erro ao carregar jogadores', 'error'))
+      .catch(() => toast('Erro ao carregar elenco', 'error'))
       .finally(() => setLoading(false));
   }, []);
 
   const pa = players.find(p => p.id === parseInt(playerA));
   const pb = players.find(p => p.id === parseInt(playerB));
+
+  const profA = pa ? getPlayerProficiencies(pa) : [];
+  const profB = pb ? getPlayerProficiencies(pb) : [];
 
   const radarData = pa && pb
     ? TECHNICAL_ATTRS.map(({ key, label }) => ({
@@ -32,105 +40,158 @@ export default function ComparePage() {
       }))
     : [];
 
-  const PlayerHeader = ({ player, color }) => (
-    <div style={{ textAlign:'center', padding:20 }}>
-      <div style={{
-        width:64, height:64, borderRadius:'50%', margin:'0 auto 12px',
-        background:'var(--bg-elevated)', border:`3px solid ${color}`,
-        display:'flex', alignItems:'center', justifyContent:'center',
-        fontSize:22, fontWeight:700, overflow:'hidden'
-      }}>
-        {player.photo ? <img src={player.photo} alt={player.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-          : getInitials(player.name)}
+  const PlayerHeader = ({ player, color, profs }) => {
+    const avg = avgTechnical(player.attributes);
+    return (
+      <div style={{ textAlign: 'center', padding: '12px' }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: 'var(--radius-sm)', margin: '0 auto 10px',
+          background: 'var(--bg-secondary)', border: `2px solid ${color}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 18, fontWeight: 900, overflow: 'hidden', color
+        }}>
+          {player.photo ? (
+            <img src={player.photo} alt={player.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            getInitials(player.name)
+          )}
+        </div>
+        <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: 15, color: '#FFFFFF', marginBottom: 4 }}>
+          {player.name}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className={positionBadgeClass(player.primary_position)}>{player.primary_position}</span>
+          <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 11, fontWeight: 900, color: 'var(--gold)' }}>
+            MÉD: {avg}
+          </span>
+        </div>
       </div>
-      <div style={{ fontWeight:800, fontSize:17, marginBottom:4 }}>{player.name}</div>
-      <span className={positionBadgeClass(player.primary_position)}>{player.primary_position}</span>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="page-container">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Comparar Jogadores</h1>
-          <p className="page-subtitle">Analise dois jogadores lado a lado</p>
+      {/* ── Page Header ── */}
+      <div className="geo-page-header">
+        <div className="geo-header-title-block">
+          <div className="geo-eyebrow">ANÁLISE COMPARATIVA DE PLANTEL</div>
+          <h1 className="geo-main-title">COMPARAÇÃO DE ATLETAS</h1>
+          <p className="geo-sub-title">CONFRONTE FUNDAMENTOS TÉCNICOS E PROFICIÊNCIAS TÁTICAS LADO A LADO</p>
         </div>
       </div>
 
-      {/* Seleção */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:32 }}>
-        <div className="form-group">
-          <label className="form-label">Jogador A</label>
-          <select className="form-select" value={playerA} onChange={e => setPlayerA(e.target.value)}>
-            <option value="">Selecione...</option>
-            {players.filter(p => p.id !== parseInt(playerB)).map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Jogador B</label>
-          <select className="form-select" value={playerB} onChange={e => setPlayerB(e.target.value)}>
-            <option value="">Selecione...</option>
-            {players.filter(p => p.id !== parseInt(playerA)).map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+      {/* ── Seletor de Atletas ── */}
+      <div className="geo-panel" style={{ marginBottom: 20 }}>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label" style={{ color: '#60A5FA' }}>ATLETA 1 (AZUL)</label>
+            <select
+              className="form-select"
+              value={playerA}
+              onChange={e => setPlayerA(e.target.value)}
+              style={{ borderLeft: '3px solid var(--team-blue)' }}
+            >
+              <option value="">Selecione o primeiro atleta...</option>
+              {players.filter(p => p.id !== parseInt(playerB)).map(p => (
+                <option key={p.id} value={p.id}>{p.name} ({p.primary_position})</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ color: '#F87171' }}>ATLETA 2 (VERMELHO)</label>
+            <select
+              className="form-select"
+              value={playerB}
+              onChange={e => setPlayerB(e.target.value)}
+              style={{ borderLeft: '3px solid var(--team-red)' }}
+            >
+              <option value="">Selecione o segundo atleta...</option>
+              {players.filter(p => p.id !== parseInt(playerA)).map(p => (
+                <option key={p.id} value={p.id}>{p.name} ({p.primary_position})</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {!pa || !pb ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">⚖️</div>
-          <h3>Selecione dois jogadores</h3>
-          <p>Escolha os jogadores acima para ver a comparação.</p>
+        <div className="geo-panel" style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <ArrowRightLeft size={36} className="geo-empty-icon" style={{ color: 'var(--gold)', margin: '0 auto 12px' }} />
+          <div className="geo-empty-title">SELECIONE DOIS ATLETAS PARA CONFRONTO</div>
+          <div className="geo-empty-desc">
+            Escolha os atletas nos menus acima para gerar o radar sobreposto e os índices de proficiência tática detalhados.
+          </div>
         </div>
       ) : (
         <>
-          {/* Cabeçalho comparação */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 1fr', alignItems:'center', marginBottom:24 }}>
-            <PlayerHeader player={pa} color="#3b82f6" />
-            <div style={{ textAlign:'center', fontSize:20, fontWeight:800, color:'var(--text-muted)' }}>VS</div>
-            <PlayerHeader player={pb} color="#ef4444" />
+          {/* ── Head to Head Summary Card ── */}
+          <div className="geo-panel" style={{ marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 16 }}>
+              <PlayerHeader player={pa} color="var(--team-blue)" profs={profA} />
+              <div style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 16, fontWeight: 900, color: 'var(--gold)', background: 'var(--bg-secondary)', padding: '6px 12px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border)' }}>
+                VS
+              </div>
+              <PlayerHeader player={pb} color="var(--team-red)" profs={profB} />
+            </div>
           </div>
 
-          {/* Radar sobreposto */}
-          <div className="card" style={{ marginBottom:24 }}>
-            <h3 style={{ fontSize:15, fontWeight:700, color:'var(--text-secondary)', marginBottom:16 }}>Radar Comparativo</h3>
-            <ResponsiveContainer width="100%" height={320}>
-              <RadarChart data={radarData} margin={{ top:10, right:40, bottom:10, left:40 }}>
-                <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill:'#8b9ab8', fontSize:12 }} />
-                <PolarRadiusAxis angle={90} domain={[0,10]} tick={{ fill:'#4a5a75', fontSize:10 }} tickCount={6} />
-                <Radar name={pa.name.split(' ')[0]} dataKey={pa.name.split(' ')[0]} stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.15} strokeWidth={2} />
-                <Radar name={pb.name.split(' ')[0]} dataKey={pb.name.split(' ')[0]} stroke="#ef4444" fill="#ef4444" fillOpacity={0.15} strokeWidth={2} />
-                <Tooltip contentStyle={{ background:'#141820', border:'1px solid #2a3347', borderRadius:8, color:'#f0f4ff', fontSize:12 }} />
-                <Legend wrapperStyle={{ fontSize:13, color:'#8b9ab8' }} />
-              </RadarChart>
-            </ResponsiveContainer>
+          {/* ── Radar Técnico Sobreposto ── */}
+          <div className="geo-panel" style={{ marginBottom: 20 }}>
+            <div className="geo-panel-header">
+              <div>
+                <div className="geo-eyebrow">SOBREPOSIÇÃO POLIGONAL</div>
+                <h3 className="geo-panel-title">RADAR TÉCNICO COMPARATIVO</h3>
+              </div>
+            </div>
+
+            <div style={{ width: '100%', height: 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={radarData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+                  <PolarGrid stroke="#212B3E" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#94A3B8', fontSize: 11, fontWeight: 700 }} />
+                  <PolarRadiusAxis angle={90} domain={[0, 10]} tick={{ fill: '#64748B', fontSize: 10 }} tickCount={6} />
+                  <Radar name={pa.name.split(' ')[0]} dataKey={pa.name.split(' ')[0]} stroke="var(--team-blue)" fill="var(--team-blue)" fillOpacity={0.2} strokeWidth={2} />
+                  <Radar name={pb.name.split(' ')[0]} dataKey={pb.name.split(' ')[0]} stroke="var(--team-red)" fill="var(--team-red)" fillOpacity={0.2} strokeWidth={2} />
+                  <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700, paddingTop: 10 }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: '#0F141F',
+                      border: '1px solid #2E3B54',
+                      borderRadius: 4,
+                      color: '#FFFFFF',
+                      fontSize: 12,
+                      fontFamily: 'Space Grotesk, sans-serif'
+                    }}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          {/* Tabela de atributos */}
-          <div className="card">
-            <h3 style={{ fontSize:15, fontWeight:700, color:'var(--text-secondary)', marginBottom:16 }}>Comparação de Atributos</h3>
-            {TECHNICAL_ATTRS.map(({ key, label }) => {
-              const va = pa.attributes?.[key] ?? 5;
-              const vb = pb.attributes?.[key] ?? 5;
-              const best = va > vb ? 'a' : vb > va ? 'b' : 'tie';
-              return (
-                <div key={key} style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr', gap:12, alignItems:'center', marginBottom:12 }}>
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
-                    <span style={{ fontSize:15, fontWeight:800, color: best === 'a' ? '#3b82f6' : 'var(--text-primary)' }}>{va}</span>
-                    <div style={{ height:6, borderRadius:3, width:`${va*10}%`, background: best === 'a' ? '#3b82f6' : 'var(--bg-elevated)', maxWidth:120 }} />
-                  </div>
-                  <span style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', textAlign:'center', minWidth:80 }}>{label}</span>
-                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:4 }}>
-                    <span style={{ fontSize:15, fontWeight:800, color: best === 'b' ? '#ef4444' : 'var(--text-primary)' }}>{vb}</span>
-                    <div style={{ height:6, borderRadius:3, width:`${vb*10}%`, background: best === 'b' ? '#ef4444' : 'var(--bg-elevated)', maxWidth:120 }} />
-                  </div>
+          {/* ── Comparativo de Proficiências por Posição ── */}
+          <div className="geo-panel">
+            <div className="geo-panel-header">
+              <div>
+                <div className="geo-eyebrow">APTIDÃO TÁTICA</div>
+                <h3 className="geo-panel-title">PROFICIÊNCIA POR POSIÇÃO (0.0 A 5.0)</h3>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+              <div>
+                <div style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 13, fontWeight: 800, color: '#60A5FA', marginBottom: 10, textTransform: 'uppercase' }}>
+                  {pa.name}
                 </div>
-              );
-            })}
+                <PositionProficiencyBadge proficiencies={profA} variant="detailed" />
+              </div>
+              <div>
+                <div style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 13, fontWeight: 800, color: '#F87171', marginBottom: 10, textTransform: 'uppercase' }}>
+                  {pb.name}
+                </div>
+                <PositionProficiencyBadge proficiencies={profB} variant="detailed" />
+              </div>
+            </div>
           </div>
         </>
       )}

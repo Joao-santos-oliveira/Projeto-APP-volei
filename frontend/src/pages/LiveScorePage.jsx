@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RotateCcw, CheckCircle, Plus, ChevronDown } from 'lucide-react';
+import { RotateCcw, CheckCircle, Plus, ArrowLeft, Shield, Award, AlertCircle, Users } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../contexts/ToastContext';
 import { POINT_ACTIONS, getInitials } from '../utils/constants';
@@ -15,12 +15,16 @@ export default function LiveScorePage() {
   const [match, setMatch] = useState(null);
   const [sets, setSets] = useState([]);
   const [homePlayers, setHomePlayers] = useState([]);
+  const [awayPlayers, setAwayPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pointPanel, setPointPanel] = useState(null); // 'home' | 'away'
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [selectedAction, setSelectedAction] = useState(null);
+  const [playerTab, setPlayerTab] = useState('home'); // 'home' | 'away'
   const [logging, setLogging] = useState(false);
   const [showNewPlayer, setShowNewPlayer] = useState(false);
+  const [showFinishConfirm, setShowFinishConfirm] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -28,6 +32,7 @@ export default function LiveScorePage() {
       setMatch(data);
       setSets(data.sets || []);
       setHomePlayers(data.home_players || []);
+      setAwayPlayers(data.away_players || []);
     } catch {
       toast('Partida não encontrada', 'error');
       navigate('/matches');
@@ -44,10 +49,28 @@ export default function LiveScorePage() {
     setPointPanel(team);
     setSelectedPlayer(null);
     setSelectedAction(null);
+    setPlayerTab(team); // default to scoring team
+  };
+
+  const handleActionSelect = (actionKey) => {
+    setSelectedAction(actionKey);
+    const actionObj = POINT_ACTIONS.find(a => a.key === actionKey);
+
+    // Se a ação for de erro (ex: erro de saque, recepção, ataque adversário),
+    // troca automaticamente a aba de atletas para o time ADVERSÁRIO para facilitar a escolha do culpado pelo erro!
+    if (actionObj?.type === 'error') {
+      const opponentTeam = pointPanel === 'home' ? 'away' : 'home';
+      setPlayerTab(opponentTeam);
+    } else {
+      setPlayerTab(pointPanel);
+    }
   };
 
   const handleLogPoint = async () => {
-    if (!selectedAction) { toast('Selecione como o ponto ocorreu', 'info'); return; }
+    if (!selectedAction) {
+      toast('Selecione o fundamento que gerou o ponto', 'info');
+      return;
+    }
     setLogging(true);
     try {
       const res = await api.addPoint(id, {
@@ -60,9 +83,10 @@ export default function LiveScorePage() {
       setPointPanel(null);
 
       if (res.matchFinished) {
-        toast('🏆 Partida encerrada!', 'success');
+        toast('Partida encerrada automaticamente por pontuação', 'success');
+        navigate(`/history/${id}`);
       } else if (res.setFinished) {
-        toast(`Set ${currentSet?.set_number} encerrado!`, 'info');
+        toast(`Set ${currentSet?.set_number} finalizado`, 'info');
       }
     } catch (err) {
       toast(err.message, 'error');
@@ -75,27 +99,30 @@ export default function LiveScorePage() {
     try {
       const res = await api.undoPoint(id);
       setSets(res.sets);
-      toast('Ponto desfeito', 'info');
+      toast('Último ponto desfeito', 'info');
     } catch (err) {
       toast(err.message, 'error');
     }
   };
 
-  const handleFinish = async () => {
-    if (!window.confirm('Finalizar partida?')) return;
+  const confirmFinishMatch = async () => {
+    setFinishing(true);
     try {
       await api.finishMatch(id);
-      toast('Partida finalizada!', 'success');
+      toast('Partida consolidada e finalizada', 'success');
+      setShowFinishConfirm(false);
       navigate(`/history/${id}`);
     } catch (err) {
       toast(err.message, 'error');
+    } finally {
+      setFinishing(false);
     }
   };
 
   const handleNewPlayer = async (data) => {
     try {
       const newP = await api.createPlayer(data);
-      toast(`${newP.name} adicionado!`, 'success');
+      toast(`${newP.name} cadastrado`, 'success');
       setShowNewPlayer(false);
       load();
     } catch (err) {
@@ -106,217 +133,263 @@ export default function LiveScorePage() {
   if (loading) return <div className="loading-spinner"><div className="spinner" /></div>;
   if (!match) return null;
 
-  const homeScore = currentSet?.home_score ?? 0;
-  const awayScore = currentSet?.away_score ?? 0;
-  const homeWins = sets.filter(s => s.winner === 'home').length;
-  const awayWins = sets.filter(s => s.winner === 'away').length;
+  const homeScore = currentSet ? currentSet.home_score : 0;
+  const awayScore = currentSet ? currentSet.away_score : 0;
+  const homeWins  = sets.filter(s => s.finished && s.winner === 'home').length;
+  const awayWins  = sets.filter(s => s.finished && s.winner === 'away').length;
 
-  const pointActions = selectedAction
-    ? POINT_ACTIONS
-    : pointPanel === 'home'
-      ? POINT_ACTIONS
-      : POINT_ACTIONS;
+  const activePlayersList = playerTab === 'home' ? homePlayers : awayPlayers;
+  const isSelectedActionError = POINT_ACTIONS.find(a => a.key === selectedAction)?.type === 'error';
 
   return (
-    <div style={{ minHeight:'100vh', background:'var(--bg-primary)', display:'flex', flexDirection:'column' }}>
-      {/* Top bar */}
-      <div style={{
-        background:'var(--bg-secondary)', borderBottom:'1px solid var(--border)',
-        padding:'12px 20px', display:'flex', alignItems:'center', justifyContent:'space-between'
-      }}>
-        <button className="btn btn-ghost btn-sm" onClick={() => navigate('/matches')}>← Partidas</button>
-        <div style={{ display:'flex', gap:8 }}>
-          {match.status === 'live' && (
-            <span style={{
-              fontSize:11, fontWeight:700, color:'var(--success)', textTransform:'uppercase',
-              letterSpacing:'0.06em', display:'flex', alignItems:'center', gap:4
-            }}>
-              <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--success)', display:'inline-block', animation:'pulse 1.5s infinite' }} />
-              AO VIVO
-            </span>
-          )}
-          <button className="btn btn-secondary btn-sm" onClick={handleUndo}>
-            <RotateCcw size={14} /> Desfazer
+    <div className="page-container live-score-page">
+      {/* ── Top Match Control Bar ── */}
+      <div className="geo-top-action-bar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/matches')}>
+            <ArrowLeft size={14} /> PARTIDAS
           </button>
-          <button className="btn btn-danger btn-sm" onClick={handleFinish}>
-            <CheckCircle size={14} /> Encerrar
+          <div className="geo-live-indicator">
+            <span className="geo-live-dot" />
+            <span>AO VIVO</span>
+          </div>
+        </div>
+
+        <div className="geo-action-cluster">
+          <button className="btn btn-secondary btn-sm" onClick={handleUndo} title="Desfazer último ponto">
+            <RotateCcw size={13} /> DESFAZER
+          </button>
+          <button className="btn btn-danger btn-sm" onClick={() => setShowFinishConfirm(true)}>
+            <CheckCircle size={13} /> ENCERRAR
           </button>
         </div>
       </div>
 
-      {/* Placar principal */}
-      <div className="scoreboard" style={{ margin:'20px', flex:'none' }}>
-        <div style={{ padding:'12px 20px 8px', textAlign:'center' }}>
-          <div style={{ fontSize:12, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em' }}>
-            {match.home_team} vs {match.away_team}
-          </div>
+      {/* ── Scoreboard Digital Pro ── */}
+      <div className="geo-scoreboard-panel">
+        <div className="geo-scoreboard-top-bar">
+          <span className="geo-match-title-track">
+            {match.home_team.toUpperCase()} VS {match.away_team.toUpperCase()}
+          </span>
+          <span className="geo-set-current-tag">
+            SET {currentSet ? currentSet.set_number : 1} DE {match.max_sets || 5}
+          </span>
         </div>
 
-        {/* Sets ganhos */}
-        <div style={{ display:'flex', justifyContent:'center', gap:8, flexWrap:'wrap', paddingBottom:8 }}>
-          {sets.map((s, i) => {
-            const cls = s.finished
-              ? (s.winner === 'home' ? 'home-win' : 'away-win')
-              : 'current';
-            return (
-              <div key={s.id} className={`set-badge ${cls}`}>
-                Set {s.set_number}: {s.home_score}–{s.away_score}
-              </div>
-            );
-          })}
-        </div>
+        {/* Set History Chips */}
+        {sets.length > 0 && (
+          <div className="geo-set-chips-row">
+            {sets.map(s => {
+              const isCurrent = s.id === currentSet?.id && !s.finished;
+              const isHomeWin = s.finished && s.winner === 'home';
+              const isAwayWin = s.finished && s.winner === 'away';
 
-        {/* Placar atual */}
-        <div className="score-display">
-          <div className="score-team">
-            <div className="score-team-name">{match.home_team}</div>
-            <div className="score-number home" style={{ fontSize:80 }}>{homeScore}</div>
-            <div style={{ fontSize:20, fontWeight:800, color:'var(--home-color)' }}>{homeWins} sets</div>
+              return (
+                <div
+                  key={s.id}
+                  className={`geo-set-chip ${isCurrent ? 'current' : ''} ${isHomeWin ? 'home-win' : ''} ${isAwayWin ? 'away-win' : ''}`}
+                >
+                  <span className="set-num">SET {s.set_number}</span>
+                  <span className="set-score-digits">{s.home_score} – {s.away_score}</span>
+                </div>
+              );
+            })}
           </div>
-          <div className="score-sep">×</div>
-          <div className="score-team">
-            <div className="score-team-name">{match.away_team}</div>
-            <div className="score-number away" style={{ fontSize:80 }}>{awayScore}</div>
-            <div style={{ fontSize:20, fontWeight:800, color:'var(--away-color)' }}>{awayWins} sets</div>
+        )}
+
+        {/* Big Dual Scores */}
+        <div className="geo-score-board-grid">
+          {/* Home Team */}
+          <div className="geo-team-score-column home">
+            <span className="geo-team-name-label">{match.home_team}</span>
+            <div className="geo-big-point-number home-color">{homeScore}</div>
+            <div className="geo-sets-won-tag">{homeWins} SET{homeWins !== 1 ? 'S' : ''} VENCIDO{homeWins !== 1 ? 'S' : ''}</div>
+          </div>
+
+          <div className="geo-score-divider-middle">
+            <span>VS</span>
+          </div>
+
+          {/* Away Team */}
+          <div className="geo-team-score-column away">
+            <span className="geo-team-name-label">{match.away_team}</span>
+            <div className="geo-big-point-number away-color">{awayScore}</div>
+            <div className="geo-sets-won-tag">{awayWins} SET{awayWins !== 1 ? 'S' : ''} VENCIDO{awayWins !== 1 ? 'S' : ''}</div>
           </div>
         </div>
       </div>
 
-      {/* Botões de ponto — GRANDES para usar em quadra */}
+      {/* ── Large Point Trigger Buttons ── */}
       {match.status === 'live' && !pointPanel && (
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, margin:'0 20px 20px', flex:1 }}>
+        <div className="geo-point-triggers-grid">
           <button
-            className="btn"
-            style={{
-              background:'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(59,130,246,0.1))',
-              border:'2px solid var(--home-color)', color:'var(--home-color)',
-              borderRadius:20, fontSize:22, fontWeight:800, minHeight:120,
-              flexDirection:'column', gap:8, letterSpacing:0
-            }}
+            className="geo-trigger-btn home-trigger"
             onClick={() => handlePointClick('home')}
           >
-            <span style={{ fontSize:32 }}>⬆️</span>
-            NOSSO PONTO
+            <span className="trigger-team-tag">PONTO</span>
+            <span className="trigger-team-name">{match.home_team.toUpperCase()}</span>
           </button>
+
           <button
-            className="btn"
-            style={{
-              background:'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(239,68,68,0.1))',
-              border:'2px solid var(--away-color)', color:'var(--away-color)',
-              borderRadius:20, fontSize:22, fontWeight:800, minHeight:120,
-              flexDirection:'column', gap:8, letterSpacing:0
-            }}
+            className="geo-trigger-btn away-trigger"
             onClick={() => handlePointClick('away')}
           >
-            <span style={{ fontSize:32 }}>⬆️</span>
-            PONTO DELES
+            <span className="trigger-team-tag">PONTO</span>
+            <span className="trigger-team-name">{match.away_team.toUpperCase()}</span>
           </button>
         </div>
       )}
 
-      {/* Painel de detalhamento do ponto */}
+      {/* ── Point Details Logger Panel ── */}
       {pointPanel && (
-        <div style={{
-          margin:'0 20px 20px',
-          background:'var(--bg-card)',
-          border:'1px solid var(--border)',
-          borderRadius:20,
-          overflow:'hidden'
-        }}>
-          {/* Header do painel */}
-          <div style={{
-            padding:'16px 20px',
-            background: pointPanel === 'home' ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)',
-            borderBottom:'1px solid var(--border)',
-            display:'flex', alignItems:'center', justifyContent:'space-between'
+        <div className="geo-point-logger-card">
+          <div className="geo-logger-header" style={{
+            borderLeftColor: pointPanel === 'home' ? 'var(--team-blue)' : 'var(--team-red)'
           }}>
-            <div style={{ fontWeight:700, color: pointPanel === 'home' ? 'var(--home-color)' : 'var(--away-color)' }}>
-              {pointPanel === 'home' ? '⬆️ Nosso Ponto' : '⬆️ Ponto do Adversário'}
-            </div>
-            <button className="btn btn-ghost btn-sm" onClick={() => setPointPanel(null)}>Cancelar</button>
-          </div>
-
-          <div style={{ padding:20, display:'flex', flexDirection:'column', gap:20 }}>
-            {/* Quem fez */}
-            {pointPanel === 'home' && homePlayers.length > 0 && (
-              <div>
-                <div style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', color:'var(--text-secondary)', marginBottom:10, letterSpacing:'0.06em' }}>
-                  Quem fez? (opcional)
-                </div>
-                <div className="player-selector">
-                  {homePlayers.map(p => (
-                    <button key={p.id} type="button"
-                      className={`player-selector-btn${selectedPlayer === p.id ? ' selected' : ''}`}
-                      onClick={() => setSelectedPlayer(selectedPlayer === p.id ? null : p.id)}
-                    >
-                      <div className="player-selector-avatar">
-                        {p.photo ? <img src={p.photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'cover', borderRadius:'50%' }} />
-                          : getInitials(p.name)}
-                      </div>
-                      <span>{p.nickname || p.name.split(' ')[0]}</span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="player-selector-btn"
-                    onClick={() => setShowNewPlayer(true)}
-                    style={{ borderStyle:'dashed', color:'var(--text-muted)' }}
-                  >
-                    <div className="player-selector-avatar" style={{ background:'transparent', border:'1px dashed var(--border)' }}>
-                      <Plus size={16} />
-                    </div>
-                    <span>Novo</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Como ocorreu */}
             <div>
-              <div style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', color:'var(--text-secondary)', marginBottom:10, letterSpacing:'0.06em' }}>
-                Como ocorreu? *
-              </div>
-              <div className="action-grid">
-                {POINT_ACTIONS.map(action => (
-                  <button key={action.key} type="button"
-                    className={`action-btn ${action.type}${selectedAction === action.key ? ' selected' : ''}`}
-                    onClick={() => setSelectedAction(action.key)}
-                  >
-                    <span style={{ fontSize:20 }}>{action.icon}</span>
-                    <span>{action.label}</span>
-                  </button>
-                ))}
-              </div>
+              <div className="geo-eyebrow">REGISTRO DE SCOUTING</div>
+              <h3 className="geo-panel-title">
+                PONTO PARA {pointPanel === 'home' ? match.home_team.toUpperCase() : match.away_team.toUpperCase()}
+              </h3>
             </div>
-
-            {/* Confirmar */}
-            <button
-              className="btn btn-primary btn-lg btn-full"
-              onClick={handleLogPoint}
-              disabled={!selectedAction || logging}
-            >
-              {logging ? 'Registrando...' : '✓ Confirmar Ponto'}
+            <button className="btn btn-secondary btn-sm" onClick={() => setPointPanel(null)}>
+              CANCELAR
             </button>
           </div>
+
+          <div className="geo-logger-body">
+            {/* Fundamento que gerou o ponto */}
+            <div className="geo-logger-section">
+              <div className="geo-section-sub-label">1. FUNDAMENTO TÁTICO *</div>
+              <div className="geo-action-button-grid">
+                {POINT_ACTIONS.map(action => {
+                  const isSelected = selectedAction === action.key;
+                  return (
+                    <button
+                      key={action.key}
+                      type="button"
+                      className={`geo-action-tile ${action.type} ${isSelected ? 'is-selected' : ''}`}
+                      onClick={() => handleActionSelect(action.key)}
+                    >
+                      <span className="action-code">{action.code}</span>
+                      <span className="action-label">{action.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Atleta executor OU que cometeu o erro */}
+            <div className="geo-logger-section">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <div className="geo-section-sub-label">
+                  2. {isSelectedActionError ? 'ATLETA QUE COMETEU O ERRO (OPCIONAL)' : 'ATLETA RESPONSÁVEL PELO PONTO (OPCIONAL)'}
+                </div>
+
+                {/* Team Switcher Tabs (Permite selecionar jogador do mandante ou visitante) */}
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${playerTab === 'home' ? 'btn-gold' : 'btn-secondary'}`}
+                    style={{ fontSize: 10, padding: '4px 8px' }}
+                    onClick={() => setPlayerTab('home')}
+                  >
+                    {match.home_team.toUpperCase()} ({homePlayers.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${playerTab === 'away' ? 'btn-gold' : 'btn-secondary'}`}
+                    style={{ fontSize: 10, padding: '4px 8px' }}
+                    onClick={() => setPlayerTab('away')}
+                  >
+                    {match.away_team.toUpperCase()} ({awayPlayers.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Chips de Jogadores da Equipe Selecionada */}
+              <div className="geo-player-select-chips">
+                {activePlayersList.length === 0 ? (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '6px 0' }}>
+                    Nenhum atleta vinculado a esta equipe nesta partida.
+                  </div>
+                ) : (
+                  activePlayersList.map(p => {
+                    const isSelected = selectedPlayer === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`geo-athlete-chip ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedPlayer(isSelected ? null : p.id)}
+                      >
+                        <div className="geo-chip-avatar">
+                          {p.photo ? <img src={p.photo} alt={p.name} /> : getInitials(p.name)}
+                        </div>
+                        <div className="geo-chip-meta">
+                          <span className="geo-chip-name">{p.nickname || p.name.split(' ')[0]}</span>
+                          <span className="geo-chip-pos">{p.primary_position}</span>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+                <button
+                  type="button"
+                  className="geo-athlete-chip add-chip"
+                  onClick={() => setShowNewPlayer(true)}
+                >
+                  <Plus size={14} />
+                  <span>CADASTRAR ATLETA</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Botão de Confirmação */}
+            <div className="geo-logger-footer">
+              <button
+                className="btn btn-gold w-full btn-lg"
+                onClick={handleLogPoint}
+                disabled={!selectedAction || logging}
+              >
+                {logging ? 'REGISTRANDO...' : 'CONFIRMAR PONTO'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {match.status === 'finished' && (
-        <div style={{ textAlign:'center', padding:40 }}>
-          <div style={{ fontSize:48, marginBottom:16 }}>🏆</div>
-          <h2 style={{ fontSize:24, fontWeight:800, marginBottom:8 }}>Partida Encerrada!</h2>
-          <p style={{ color:'var(--text-secondary)', marginBottom:20 }}>
-            {homeWins > awayWins ? match.home_team : match.away_team} venceu por {homeWins}×{awayWins} sets
-          </p>
-          <button className="btn btn-primary" onClick={() => navigate(`/history/${id}`)}>
-            Ver Detalhes
-          </button>
-        </div>
+      {/* Modal Confirmação Encerrar Partida */}
+      {showFinishConfirm && (
+        <Modal title="CONSOLIDAR E ENCERRAR PARTIDA" onClose={() => setShowFinishConfirm(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, textAlign: 'center', padding: '10px 0' }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245,183,56,0.15)', color: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+              <AlertCircle size={24} />
+            </div>
+            <div>
+              <h3 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 16, fontWeight: 900, color: '#FFFFFF', marginBottom: 6 }}>
+                FINALIZAR PARTIDA E GERAR SCOUT?
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                O placar atual será consolidado no histórico e o relatório completo de fundamentos por atleta será gerado.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 10 }}>
+              <button className="btn btn-secondary" onClick={() => setShowFinishConfirm(false)} disabled={finishing}>
+                VOLTAR AO JOGO
+              </button>
+              <button className="btn btn-gold" onClick={confirmFinishMatch} disabled={finishing}>
+                {finishing ? 'FINALIZANDO...' : 'SIM, CONSOLIDAR E GERAR SCOUT'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
-      {/* Modal novo jogador */}
+      {/* Modal Novo Jogador Rápido */}
       {showNewPlayer && (
-        <Modal title="Novo Jogador (Rápido)" onClose={() => setShowNewPlayer(false)}>
+        <Modal title="CADASTRAR ATLETA RÁPIDO" onClose={() => setShowNewPlayer(false)}>
           <PlayerForm isQuick onSave={handleNewPlayer} onCancel={() => setShowNewPlayer(false)} />
         </Modal>
       )}

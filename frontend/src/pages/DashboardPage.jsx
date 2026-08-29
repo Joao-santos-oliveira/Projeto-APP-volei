@@ -1,36 +1,57 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useToast } from '../contexts/ToastContext';
-import { TECHNICAL_ATTRS, COMPLEMENTARY_ATTRS, avgTechnical, getInitials, positionBadgeClass } from '../utils/constants';
+import {
+  TECHNICAL_ATTRS, COMPLEMENTARY_ATTRS, avgTechnical, getInitials,
+  positionBadgeClass, getPlayerProficiencies
+} from '../utils/constants';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Shuffle, BarChart2, Users, Trophy, Activity, Award, ChevronRight, Filter, Shield } from 'lucide-react';
+import PositionProficiencyBadge from '../components/players/PositionProficiencyBadge';
 
-const COLORS = ['#f5c518','#3b82f6','#22c55e','#f97316','#a855f7','#ef4444'];
+const BAR_COLORS = ['#F5B738', '#3B82F6', '#10B981', '#F97316', '#8B5CF6', '#EC4899', '#06B6D4'];
 
 export default function DashboardPage() {
   const [players, setPlayers] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [selectedTeamId, setSelectedTeamId] = useState('');
   const [loading, setLoading] = useState(true);
   const [suggestedTeams, setSuggestedTeams] = useState(null);
+  const navigate = useNavigate();
   const toast = useToast();
 
   useEffect(() => {
-    Promise.all([api.getPlayers(), api.getMatches()])
-      .then(([p, m]) => { setPlayers(p); setMatches(m); })
-      .catch(() => toast('Erro ao carregar dados', 'error'))
+    Promise.all([api.getPlayers(), api.getTeams(), api.getMatches()])
+      .then(([p, t, m]) => { setPlayers(p); setTeams(t); setMatches(m); })
+      .catch(() => toast('Erro ao carregar dados de estatísticas', 'error'))
       .finally(() => setLoading(false));
   }, []);
 
-  // Balanceamento de times
-  const suggestTeams = () => {
-    if (players.length < 2) { toast('Precisa de ao menos 2 jogadores', 'info'); return; }
+  // Filtragem por time selecionado
+  const filteredPlayers = selectedTeamId
+    ? (() => {
+        const teamObj = teams.find(t => t.id === parseInt(selectedTeamId));
+        const teamPlayerIds = (teamObj?.players || []).map(p => p.id);
+        return players.filter(p => teamPlayerIds.includes(p.id));
+      })()
+    : players;
 
-    // Calcular score total de cada jogador
-    const scored = players.map(p => ({
+  const currentTeamObj = teams.find(t => t.id === parseInt(selectedTeamId));
+
+  // Algoritmo Snake Draft para balanceamento
+  const suggestTeams = () => {
+    if (filteredPlayers.length < 2) {
+      toast('Selecione uma equipe com ao menos 2 atletas para gerar escalações balanceadas', 'info');
+      return;
+    }
+
+    const scored = filteredPlayers.map(p => ({
       ...p,
       score: [...TECHNICAL_ATTRS, ...COMPLEMENTARY_ATTRS].reduce((sum, { key }) => sum + (p.attributes?.[key] ?? 5), 0)
     })).sort((a, b) => b.score - a.score);
 
-    // Divisão snake draft: 1→A, 2→B, 3→B, 4→A, 5→A, 6→B...
     const teamA = [], teamB = [];
     scored.forEach((p, i) => {
       const round = Math.floor(i / 2);
@@ -41,120 +62,232 @@ export default function DashboardPage() {
     });
 
     setSuggestedTeams({ teamA, teamB });
+    toast('Equipes equilibradas geradas com sucesso', 'success');
   };
 
-  const teamAvgData = players.map(p => ({
+  const teamAvgData = filteredPlayers.map(p => ({
     name: p.nickname || p.name.split(' ')[0],
     Técnico: parseFloat(avgTechnical(p.attributes)),
   }));
 
   const matchesFinished = matches.filter(m => m.status === 'finished');
+  const matchesLive = matches.filter(m => m.status === 'live');
+  const teamOverallAvg = filteredPlayers.length > 0
+    ? (filteredPlayers.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / filteredPlayers.length).toFixed(1)
+    : '—';
 
   if (loading) return <div className="loading-spinner"><div className="spinner" /></div>;
 
   return (
     <div className="page-container">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Dashboard</h1>
-          <p className="page-subtitle">Visão geral do time e estatísticas</p>
+      {/* ── Header ── */}
+      <div className="geo-page-header">
+        <div className="geo-header-title-block">
+          <div className="geo-eyebrow">ANALYTICS & INTELIGÊNCIA COLETIVA</div>
+          <h1 className="geo-main-title">PAINEL DE ESTATÍSTICAS</h1>
+          <p className="geo-sub-title">MÉTRICAS TÉCNICAS CONSOLIDADAS E BALANCEAMENTO TÁTICO</p>
         </div>
       </div>
 
-      {/* Cards de resumo */}
-      <div className="stat-grid" style={{ marginBottom:32 }}>
-        <div className="stat-card">
-          <div className="stat-card-value">{players.length}</div>
-          <div className="stat-card-label">Jogadores</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-value">{matchesFinished.length}</div>
-          <div className="stat-card-label">Partidas</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-value">
-            {players.length > 0
-              ? (players.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / players.length).toFixed(1)
-              : '—'}
+      {/* ── Filtro de Equipe ── */}
+      <div className="geo-panel" style={{ padding: '12px 16px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Filter size={15} color="var(--gold)" />
+            <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 12, fontWeight: 900, color: '#FFFFFF', letterSpacing: '0.06em' }}>
+              FILTRAR DASHBOARD POR EQUIPE:
+            </span>
           </div>
-          <div className="stat-card-label">Média Técnica</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-value">{matches.filter(m => m.status === 'live').length}</div>
-          <div className="stat-card-label">Ao Vivo</div>
+
+          <div style={{ minWidth: 260 }}>
+            <select
+              className="geo-select-input"
+              value={selectedTeamId}
+              onChange={e => { setSelectedTeamId(e.target.value); setSuggestedTeams(null); }}
+              style={{
+                borderColor: currentTeamObj?.color || 'var(--border)',
+                borderLeftWidth: currentTeamObj ? 4 : 1,
+                borderLeftColor: currentTeamObj?.color || 'var(--border)'
+              }}
+            >
+              <option value="">TODAS AS EQUIPES ({players.length} ATLETAS)</option>
+              {teams.map(t => (
+                <option key={t.id} value={t.id}>
+                  EQUIPE: {t.name.toUpperCase()} ({t.players?.length || 0} ATLETAS)
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Gráfico de desempenho técnico médio */}
-      <div className="card" style={{ marginBottom:24 }}>
-        <h3 style={{ fontSize:15, fontWeight:700, color:'var(--text-secondary)', marginBottom:20 }}>
-          Média Técnica por Jogador
-        </h3>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={teamAvgData} margin={{ top:0, right:10, bottom:0, left:0 }}>
-            <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
-            <XAxis dataKey="name" tick={{ fill:'#8b9ab8', fontSize:12 }} />
-            <YAxis domain={[0,10]} tick={{ fill:'#8b9ab8', fontSize:11 }} />
-            <Tooltip contentStyle={{ background:'#141820', border:'1px solid #2a3347', borderRadius:8, color:'#f0f4ff', fontSize:12 }} />
-            <Bar dataKey="Técnico" radius={[6,6,0,0]}>
-              {teamAvgData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      {/* ── Grid de Métricas Principais ── */}
+      <div className="geo-stat-metrics-grid">
+        <div className="geo-stat-metric-card">
+          <div className="metric-header">
+            <span className="metric-label">ELENCO ATIVO</span>
+            <Users size={14} className="metric-icon" />
+          </div>
+          <div className="metric-value">{filteredPlayers.length}</div>
+          <div className="metric-sub">{selectedTeamId ? `ATLETAS EM ${currentTeamObj?.name?.toUpperCase()}` : 'ATLETAS REGISTRADOS'}</div>
+        </div>
+
+        <div className="geo-stat-metric-card">
+          <div className="metric-header">
+            <span className="metric-label">MÉDIA TÉCNICA GERAL</span>
+            <Award size={14} className="metric-icon" />
+          </div>
+          <div className="metric-value" style={{ color: 'var(--gold)' }}>{teamOverallAvg}</div>
+          <div className="metric-sub">ESCALA TÉCNICA DE 0 A 10</div>
+        </div>
+
+        <div className="geo-stat-metric-card">
+          <div className="metric-header">
+            <span className="metric-label">PARTIDAS ENCERRADAS</span>
+            <Trophy size={14} className="metric-icon" />
+          </div>
+          <div className="metric-value">{matchesFinished.length}</div>
+          <div className="metric-sub">RELATÓRIOS CONSOLIDADOS</div>
+        </div>
+
+        <div className="geo-stat-metric-card">
+          <div className="metric-header">
+            <span className="metric-label">JOGOS AO VIVO</span>
+            <Activity size={14} className="metric-icon" />
+          </div>
+          <div className="metric-value" style={{ color: matchesLive.length > 0 ? 'var(--gold)' : 'var(--text-muted)' }}>
+            {matchesLive.length}
+          </div>
+          <div className="metric-sub">{matchesLive.length > 0 ? 'PARTIDA EM ANDAMENTO' : 'NENHUM JOGO AO VIVO'}</div>
+        </div>
       </div>
 
-      {/* Sugestão de times */}
-      <div className="card">
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-          <h3 style={{ fontSize:15, fontWeight:700, color:'var(--text-secondary)' }}>
-            Sugestão de Times Balanceados
-          </h3>
-          <button className="btn btn-primary btn-sm" onClick={suggestTeams}>
-            ⚡ Sugerir Times
+      {/* ── Gráfico de Médias Técnicas Individuais ── */}
+      <div className="geo-panel">
+        <div className="geo-panel-header">
+          <div>
+            <div className="geo-eyebrow">DISTRIBUIÇÃO INDIVIDUAL</div>
+            <h3 className="geo-panel-title">
+              MÉDIA TÉCNICA POR ATLETA {currentTeamObj ? `· ${currentTeamObj.name.toUpperCase()}` : ''}
+            </h3>
+          </div>
+        </div>
+
+        {filteredPlayers.length === 0 ? (
+          <div className="geo-empty-panel">
+            <div className="geo-empty-desc">Nenhum atleta cadastrado nesta equipe.</div>
+          </div>
+        ) : (
+          <div style={{ width: '100%', height: 260, marginTop: 8 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={teamAvgData} margin={{ top: 10, right: 10, bottom: 20, left: -20 }}>
+                <CartesianGrid stroke="#212B3E" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: '#94A3B8', fontSize: 11, fontWeight: 700 }} axisLine={{ stroke: '#212B3E' }} tickLine={false} />
+                <YAxis domain={[0, 10]} tick={{ fill: '#64748B', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                  contentStyle={{
+                    background: '#0F141F',
+                    border: '1px solid #2E3B54',
+                    borderRadius: 4,
+                    color: '#FFFFFF',
+                    fontSize: 12,
+                    fontFamily: 'Space Grotesk, sans-serif'
+                  }}
+                  formatter={(v) => [`${v}/10`, 'Média Técnica']}
+                />
+                <Bar dataKey="Técnico" radius={[2, 2, 0, 0]}>
+                  {teamAvgData.map((_, i) => (
+                    <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* ── Balanceamento Tático (Snake Draft) ── */}
+      <div className="geo-panel">
+        <div className="geo-panel-header">
+          <div>
+            <div className="geo-eyebrow">INTELIGÊNCIA DE ESCALAÇÃO</div>
+            <h3 className="geo-panel-title">GERADOR DE TIMES EQUILIBRADOS</h3>
+            <p className="geo-panel-subtitle">
+              Distribuição por algoritmo Snake Draft ponderando todas as notas técnicas {currentTeamObj ? `de ${currentTeamObj.name}` : 'do elenco'}
+            </p>
+          </div>
+
+          <button className="btn btn-gold" onClick={suggestTeams}>
+            <Shuffle size={14} /> GERAR ESCALAÇÃO EQUILIBRADA
           </button>
         </div>
 
         {suggestedTeams ? (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:24 }}>
-            {[
-              { label:'Time A', players: suggestedTeams.teamA, color:'#3b82f6' },
-              { label:'Time B', players: suggestedTeams.teamB, color:'#ef4444' },
-            ].map(({ label, players: team, color }) => {
-              const avg = team.length > 0
-                ? (team.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / team.length).toFixed(1)
-                : '—';
-              return (
-                <div key={label} style={{ background:'var(--bg-elevated)', borderRadius:12, padding:16, border:`1px solid ${color}33` }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:12 }}>
-                    <span style={{ fontWeight:800, color, fontSize:16 }}>{label}</span>
-                    <span style={{ fontSize:13, color:'var(--text-secondary)' }}>Média: <strong style={{ color }}>{avg}</strong></span>
-                  </div>
-                  {team.map(p => (
-                    <div key={p.id} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
-                      <div style={{
-                        width:32, height:32, borderRadius:'50%', background:'var(--bg-input)',
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        fontSize:12, fontWeight:700, flexShrink:0, overflow:'hidden'
-                      }}>
-                        {p.photo ? <img src={p.photo} alt={p.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                          : getInitials(p.name)}
-                      </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {p.name}
-                        </div>
-                        <span className={positionBadgeClass(p.primary_position)} style={{ fontSize:9 }}>{p.primary_position}</span>
-                      </div>
-                      <span style={{ fontSize:12, fontWeight:700, color:'var(--text-accent)' }}>{avgTechnical(p.attributes)}</span>
+          <div className="geo-suggested-teams-grid">
+            {/* Time A */}
+            <div className="geo-suggested-team-card" style={{ borderLeftColor: 'var(--team-blue)' }}>
+              <div className="geo-suggested-team-header">
+                <span className="team-badge" style={{ background: 'rgba(37, 99, 235, 0.15)', color: '#60A5FA', borderColor: 'rgba(37, 99, 235, 0.4)' }}>
+                  EQUIPE MANDANTE (A)
+                </span>
+                <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 12, fontWeight: 900, color: 'var(--gold)' }}>
+                  MÉD: {(suggestedTeams.teamA.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / (suggestedTeams.teamA.length || 1)).toFixed(1)}
+                </span>
+              </div>
+
+              <div className="geo-suggested-team-roster">
+                {suggestedTeams.teamA.map(p => (
+                  <div key={p.id} className="geo-suggested-player-row" onClick={() => navigate(`/players/${p.id}`)}>
+                    <div className="player-avatar-mini">
+                      {p.photo ? <img src={p.photo} alt={p.name} /> : getInitials(p.name)}
                     </div>
-                  ))}
-                </div>
-              );
-            })}
+                    <div className="player-meta-mini">
+                      <span className="player-name-text">{p.name}</span>
+                      <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{p.primary_position}</span>
+                    </div>
+                    <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 11, fontWeight: 900, color: 'var(--gold)' }}>
+                      {avgTechnical(p.attributes)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Time B */}
+            <div className="geo-suggested-team-card" style={{ borderLeftColor: 'var(--team-red)' }}>
+              <div className="geo-suggested-team-header">
+                <span className="team-badge" style={{ background: 'rgba(220, 38, 38, 0.15)', color: '#F87171', borderColor: 'rgba(220, 38, 38, 0.4)' }}>
+                  EQUIPE VISITANTE (B)
+                </span>
+                <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 12, fontWeight: 900, color: 'var(--gold)' }}>
+                  MÉD: {(suggestedTeams.teamB.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / (suggestedTeams.teamB.length || 1)).toFixed(1)}
+                </span>
+              </div>
+
+              <div className="geo-suggested-team-roster">
+                {suggestedTeams.teamB.map(p => (
+                  <div key={p.id} className="geo-suggested-player-row" onClick={() => navigate(`/players/${p.id}`)}>
+                    <div className="player-avatar-mini">
+                      {p.photo ? <img src={p.photo} alt={p.name} /> : getInitials(p.name)}
+                    </div>
+                    <div className="player-meta-mini">
+                      <span className="player-name-text">{p.name}</span>
+                      <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{p.primary_position}</span>
+                    </div>
+                    <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 11, fontWeight: 900, color: 'var(--gold)' }}>
+                      {avgTechnical(p.attributes)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="empty-state" style={{ padding:32 }}>
-            <p>Clique em "Sugerir Times" para ver uma divisão equilibrada baseada nos atributos.</p>
+          <div className="geo-empty-panel">
+            <Shuffle size={32} className="geo-empty-icon" />
+            <div className="geo-empty-title">NENHUMA ESCALAÇÃO GERADA</div>
+            <div className="geo-empty-desc">Clique no botão acima para gerar duas equipes equilibradas instantaneamente.</div>
           </div>
         )}
       </div>

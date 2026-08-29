@@ -4,10 +4,13 @@
  */
 
 const STORAGE_KEYS = {
-  PLAYERS: 'volei_app_players',
+  PLAYERS:      'volei_app_players',
   ATTR_HISTORY: 'volei_app_attr_history',
-  MATCHES: 'volei_app_matches',
-  POINTS: 'volei_app_points'
+  MATCHES:      'volei_app_matches',
+  POINTS:       'volei_app_points',
+  TEAMS:        'volei_app_teams',
+  RATINGS:      'volei_app_ratings',
+  OBSERVATIONS: 'volei_app_observations'
 };
 
 const NOW = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -116,6 +119,30 @@ function ensureInit() {
       recorded_at: NOW()
     }));
     setStored(STORAGE_KEYS.ATTR_HISTORY, initialHistory);
+
+    // Initial seed for ratings and observations (admin user)
+    const initialRatings = INITIAL_PLAYERS.map(p => ({
+      id: p.id,
+      player_id: p.id,
+      user_id: 1,
+      ...p.attributes,
+      updated_at: NOW()
+    }));
+    setStored(STORAGE_KEYS.RATINGS, initialRatings);
+
+    const initialObs = INITIAL_PLAYERS.map(p => ({
+      id: p.id,
+      player_id: p.id,
+      user_id: 1,
+      display_name: 'Admin',
+      username: 'admin',
+      avatar_color: '#f5c518',
+      is_admin: 1,
+      text: p.notes || 'Cadastro inicial do jogador.',
+      created_at: NOW()
+    }));
+    setStored(STORAGE_KEYS.OBSERVATIONS, initialObs);
+
     setStored(STORAGE_KEYS.MATCHES, []);
     setStored(STORAGE_KEYS.POINTS, []);
   }
@@ -123,34 +150,35 @@ function ensureInit() {
 
 ensureInit();
 
+const KEYS = ['attack','serve','reception','block','defense','setting','communication','consistency','versatility'];
+
 export const localStore = {
   // ── JOGADORES ──────────────────────────────
   async getPlayers() {
     ensureInit();
     const players = getStored(STORAGE_KEYS.PLAYERS, []);
-    const history = getStored(STORAGE_KEYS.ATTR_HISTORY, []);
+    const ratings = getStored(STORAGE_KEYS.RATINGS, []);
+    const user = this._getCurrentUser();
 
     return players.map(p => {
-      // Pega o último snapshot de atributos
-      const playerSnapshots = history.filter(h => h.player_id === p.id);
-      const lastAttrs = playerSnapshots.length > 0
-        ? playerSnapshots[playerSnapshots.length - 1]
-        : (p.attributes || {});
+      const pRatings = ratings.filter(r => r.player_id === p.id);
+      let avgAttrs = {};
+      if (pRatings.length > 0) {
+        avgAttrs = Object.fromEntries(KEYS.map(k => [
+          k, parseFloat((pRatings.reduce((s, r) => s + (r[k] ?? 5), 0) / pRatings.length).toFixed(2))
+        ]));
+      } else {
+        avgAttrs = p.attributes || Object.fromEntries(KEYS.map(k => [k, 5]));
+      }
+
+      const myRating = user ? pRatings.find(r => r.user_id === user.id) || null : null;
 
       return {
         ...p,
         secondary_positions: p.secondary_positions || [],
-        attributes: {
-          attack: lastAttrs.attack ?? 5,
-          serve: lastAttrs.serve ?? 5,
-          reception: lastAttrs.reception ?? 5,
-          block: lastAttrs.block ?? 5,
-          defense: lastAttrs.defense ?? 5,
-          setting: lastAttrs.setting ?? 5,
-          communication: lastAttrs.communication ?? 5,
-          consistency: lastAttrs.consistency ?? 5,
-          versatility: lastAttrs.versatility ?? 5
-        }
+        attributes: avgAttrs,
+        rating_count: pRatings.length,
+        my_rating: myRating
       };
     });
   },
@@ -161,6 +189,35 @@ export const localStore = {
     const players = getStored(STORAGE_KEYS.PLAYERS, []);
     const p = players.find(x => x.id === numId);
     if (!p) throw new Error('Jogador não encontrado');
+
+    const ratings = getStored(STORAGE_KEYS.RATINGS, []);
+    const pRatings = ratings.filter(r => r.player_id === numId);
+    const user = this._getCurrentUser();
+    const users = getStored('volei_users', []);
+
+    let avgAttrs = {};
+    if (pRatings.length > 0) {
+      avgAttrs = Object.fromEntries(KEYS.map(k => [
+        k, parseFloat((pRatings.reduce((s, r) => s + (r[k] ?? 5), 0) / pRatings.length).toFixed(2))
+      ]));
+    } else {
+      avgAttrs = p.attributes || Object.fromEntries(KEYS.map(k => [k, 5]));
+    }
+
+    const myRating = user ? pRatings.find(r => r.user_id === user.id) || null : null;
+
+    const allRatings = pRatings.map(r => {
+      const u = users.find(x => x.id === r.user_id) || {};
+      return {
+        ...r,
+        display_name: u.display_name || (r.user_id === 1 ? 'Admin' : 'Usuário'),
+        avatar_color: u.avatar_color || '#f5c518'
+      };
+    });
+
+    const observations = getStored(STORAGE_KEYS.OBSERVATIONS, [])
+      .filter(o => o.player_id === numId)
+      .slice().reverse();
 
     const history = getStored(STORAGE_KEYS.ATTR_HISTORY, []).filter(h => h.player_id === numId);
     const points = getStored(STORAGE_KEYS.POINTS, []).filter(pt => pt.player_id === numId);
@@ -184,6 +241,11 @@ export const localStore = {
     return {
       ...p,
       secondary_positions: p.secondary_positions || [],
+      attributes: avgAttrs,
+      rating_count: pRatings.length,
+      my_rating: myRating,
+      all_ratings: allRatings,
+      observations: observations,
       attribute_history: history,
       game_stats: {
         total_actions: points.length,
@@ -347,8 +409,8 @@ export const localStore = {
 
     const newMatch = {
       id: newId,
-      home_team: data.home_team || 'Nosso Time',
-      away_team: data.away_team || 'Adversário',
+      home_team: data.home_team || 'Equipe A',
+      away_team: data.away_team || 'Equipe B',
       status: 'live',
       max_sets: data.max_sets || 5,
       created_at: NOW(),
@@ -511,5 +573,160 @@ export const localStore = {
     setStored(STORAGE_KEYS.POINTS, points);
 
     return { message: 'Partida removida' };
+  },
+
+  // ── TIMES ──────────────────────────────────
+  async getTeams() {
+    const teams = getStored(STORAGE_KEYS.TEAMS, []);
+    const players = getStored(STORAGE_KEYS.PLAYERS, []);
+    return teams.map(t => ({
+      ...t,
+      players: players.filter(p => (t.player_ids || []).includes(p.id))
+    }));
+  },
+
+  async getTeam(id) {
+    const numId = parseInt(id);
+    const teams = getStored(STORAGE_KEYS.TEAMS, []);
+    const players = getStored(STORAGE_KEYS.PLAYERS, []);
+    const team = teams.find(t => t.id === numId);
+    if (!team) throw new Error('Time não encontrado');
+    return {
+      ...team,
+      players: players.filter(p => (team.player_ids || []).includes(p.id))
+    };
+  },
+
+  async createTeam(data) {
+    const teams = getStored(STORAGE_KEYS.TEAMS, []);
+    const newId = teams.length > 0 ? Math.max(...teams.map(t => t.id)) + 1 : 1;
+    const newTeam = {
+      id: newId,
+      name: data.name,
+      description: data.description || '',
+      color: data.color || '#f5c518',
+      photo: data.photo || null,
+      player_ids: data.player_ids || [],
+      created_at: NOW(),
+      updated_at: NOW()
+    };
+    teams.push(newTeam);
+    setStored(STORAGE_KEYS.TEAMS, teams);
+    return this.getTeam(newId);
+  },
+
+  async updateTeam(id, data) {
+    const numId = parseInt(id);
+    const teams = getStored(STORAGE_KEYS.TEAMS, []);
+    const index = teams.findIndex(t => t.id === numId);
+    if (index === -1) throw new Error('Time não encontrado');
+    const current = teams[index];
+    teams[index] = {
+      ...current,
+      name:        data.name        !== undefined ? data.name        : current.name,
+      description: data.description !== undefined ? data.description : current.description,
+      color:       data.color       !== undefined ? data.color       : current.color,
+      photo:       data.photo       !== undefined ? data.photo       : current.photo,
+      player_ids:  data.player_ids  !== undefined ? data.player_ids  : current.player_ids,
+      updated_at: NOW()
+    };
+    setStored(STORAGE_KEYS.TEAMS, teams);
+    return this.getTeam(numId);
+  },
+
+  async deleteTeam(id) {
+    const numId = parseInt(id);
+    let teams = getStored(STORAGE_KEYS.TEAMS, []);
+    teams = teams.filter(t => t.id !== numId);
+    setStored(STORAGE_KEYS.TEAMS, teams);
+    return { message: 'Time removido' };
+  },
+
+  async addPlayerToTeam(teamId, playerId) {
+    const numId = parseInt(teamId);
+    const teams = getStored(STORAGE_KEYS.TEAMS, []);
+    const index = teams.findIndex(t => t.id === numId);
+    if (index === -1) throw new Error('Time não encontrado');
+    const pIds = teams[index].player_ids || [];
+    if (!pIds.includes(playerId)) teams[index].player_ids = [...pIds, playerId];
+    setStored(STORAGE_KEYS.TEAMS, teams);
+    return this.getTeam(numId);
+  },
+
+  async removePlayerFromTeam(teamId, playerId) {
+    const numId = parseInt(teamId);
+    const pNumId = parseInt(playerId);
+    const teams = getStored(STORAGE_KEYS.TEAMS, []);
+    const index = teams.findIndex(t => t.id === numId);
+    if (index === -1) throw new Error('Time não encontrado');
+    teams[index].player_ids = (teams[index].player_ids || []).filter(id => id !== pNumId);
+    setStored(STORAGE_KEYS.TEAMS, teams);
+    return this.getTeam(numId);
+  },
+
+  // ── AVALIAÇÕES E OBSERVAÇÕES ─────────────────────
+  _getCurrentUser() {
+    const u = localStorage.getItem('volei_local_user');
+    if (!u) return { id: 1, display_name: 'Visitante', avatar_color: '#888', is_admin: 0 };
+    return JSON.parse(u);
+  },
+
+  async saveRating(playerId, attrs) {
+    const numId = parseInt(playerId);
+    const user = this._getCurrentUser();
+    const ratings = getStored(STORAGE_KEYS.RATINGS, []);
+    const idx = ratings.findIndex(r => r.player_id === numId && r.user_id === user.id);
+    const KEYS = ['attack','serve','reception','block','defense','setting','communication','consistency','versatility'];
+    const newRating = {
+      id: idx >= 0 ? ratings[idx].id : (ratings.length + 1),
+      player_id: numId, user_id: user.id,
+      ...Object.fromEntries(KEYS.map(k => [k, parseFloat(attrs[k]) || 5])),
+      updated_at: NOW()
+    };
+    if (idx >= 0) ratings[idx] = newRating;
+    else ratings.push(newRating);
+    setStored(STORAGE_KEYS.RATINGS, ratings);
+
+    // Recalcular média
+    const playerRatings = ratings.filter(r => r.player_id === numId);
+    const count = playerRatings.length;
+    const avg = Object.fromEntries(KEYS.map(k => [
+      k, parseFloat((playerRatings.reduce((s, r) => s + (r[k] ?? 5), 0) / count).toFixed(2))
+    ]));
+    return { avg_attributes: avg, rating_count: count, my_rating: newRating };
+  },
+
+  async addObservation(playerId, text) {
+    if (!text?.trim()) throw new Error('Texto é obrigatório');
+    const numId = parseInt(playerId);
+    const user = this._getCurrentUser();
+    const observations = getStored(STORAGE_KEYS.OBSERVATIONS, []);
+    const newObs = {
+      id: observations.length + 1,
+      player_id: numId,
+      user_id: user.id,
+      display_name: user.display_name,
+      username: user.username || 'user',
+      avatar_color: user.avatar_color || '#888',
+      is_admin: user.is_admin || 0,
+      text: text.trim(),
+      created_at: NOW()
+    };
+    observations.push(newObs);
+    setStored(STORAGE_KEYS.OBSERVATIONS, observations);
+    return { observations: observations.filter(o => o.player_id === numId).reverse() };
+  },
+
+  async deleteObservation(playerId, obsId) {
+    const numPId = parseInt(playerId);
+    const numOId = parseInt(obsId);
+    const user = this._getCurrentUser();
+    let observations = getStored(STORAGE_KEYS.OBSERVATIONS, []);
+    const obs = observations.find(o => o.id === numOId);
+    if (!obs) throw new Error('Observação não encontrada');
+    if (obs.user_id !== user.id && !user.is_admin) throw new Error('Sem permissão');
+    observations = observations.filter(o => o.id !== numOId);
+    setStored(STORAGE_KEYS.OBSERVATIONS, observations);
+    return { observations: observations.filter(o => o.player_id === numPId).reverse() };
   }
 };
