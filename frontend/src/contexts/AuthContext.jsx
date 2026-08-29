@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem('volei_token'));
   const [loading, setLoading] = useState(true);
 
-  // Inicializa usuário admin local se não existir no localStorage (modo offline/Vercel)
+  // Inicializa usuário admin local se não existir no localStorage
   useEffect(() => {
     try {
       const users = JSON.parse(localStorage.getItem('volei_users') || '[]');
@@ -51,11 +51,11 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
-  // ── Modo offline / localStore ──────────────────────────────
-  const loginLocal = (username, password) => {
+  // ── Modo localStore / Offline ──────────────────────────────
+  const loginLocal = (cleanUsername, cleanPassword) => {
     const users = JSON.parse(localStorage.getItem('volei_users') || '[]');
-    const u = users.find(x => x.username.toLowerCase() === username.trim().toLowerCase());
-    if (!u || u.password !== password) {
+    const u = users.find(x => x.username?.toLowerCase() === cleanUsername);
+    if (!u || u.password !== cleanPassword) {
       throw new Error('Usuário ou senha incorretos');
     }
     const fakeToken = `local_${u.id}_${Date.now()}`;
@@ -63,22 +63,26 @@ export function AuthProvider({ children }) {
     return u;
   };
 
-  const registerLocal = (username, displayName, password, avatarColor) => {
+  const registerLocal = (cleanUsername, cleanDisplayName, cleanPassword, avatarColor) => {
     const users = JSON.parse(localStorage.getItem('volei_users') || '[]');
-    const cleanUsername = username.trim().toLowerCase();
-    if (users.some(x => x.username.toLowerCase() === cleanUsername)) {
-      throw new Error('Nome de usuário já cadastrado');
-    }
+    const existingIndex = users.findIndex(x => x.username?.toLowerCase() === cleanUsername);
+    
     const newUser = {
-      id: users.length > 0 ? Math.max(...users.map(x => x.id)) + 1 : 1,
+      id: existingIndex >= 0 ? users[existingIndex].id : (users.length > 0 ? Math.max(...users.map(x => x.id || 0)) + 1 : 1),
       username: cleanUsername,
-      display_name: displayName.trim(),
-      password,
+      display_name: cleanDisplayName,
+      password: cleanPassword,
       avatar_color: avatarColor || '#3b82f6',
       is_admin: users.length === 0 ? 1 : 0,
       created_at: new Date().toISOString()
     };
-    users.push(newUser);
+
+    if (existingIndex >= 0) {
+      users[existingIndex] = newUser;
+    } else {
+      users.push(newUser);
+    }
+
     localStorage.setItem('volei_users', JSON.stringify(users));
     const fakeToken = `local_${newUser.id}_${Date.now()}`;
     saveSession(newUser, fakeToken);
@@ -91,11 +95,10 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // Se for token local, valida direto
     if (t.startsWith('local_')) {
       const storedUser = localStorage.getItem('volei_local_user');
       if (storedUser) {
-        setUser(JSON.parse(storedUser));
+        try { setUser(JSON.parse(storedUser)); } catch { clearSession(); }
       } else {
         clearSession();
       }
@@ -116,13 +119,18 @@ export function AuthProvider({ children }) {
         const u = await res.json();
         setUser(u);
       } else {
-        clearSession();
+        // Tenta recuperar sessão local
+        const storedUser = localStorage.getItem('volei_local_user');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
+        } else {
+          clearSession();
+        }
       }
     } catch {
-      // Backend inacessível, restaura sessão salva
       const storedUser = localStorage.getItem('volei_local_user');
       if (storedUser) {
-        setUser(JSON.parse(storedUser));
+        try { setUser(JSON.parse(storedUser)); } catch { clearSession(); }
       } else {
         clearSession();
       }
@@ -136,39 +144,48 @@ export function AuthProvider({ children }) {
   }, [token, verifyToken]);
 
   const login = async (username, password) => {
+    const cleanUser = (username || '').trim().toLowerCase();
+    const cleanPass = (password || '').trim();
+
+    // 1. Tenta autenticar no backend SQLite
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
       const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password }),
+        body: JSON.stringify({ username: cleanUser, password: cleanPass }),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao fazer login');
-      saveSession(data.user, data.token);
-      return data.user;
-    } catch (err) {
-      // Se for erro de conexão/rede/timeout, usa o login local
-      const isNetworkError =
-        err.name === 'AbortError' ||
-        err.name === 'TypeError' ||
-        err.message.includes('fetch') ||
-        err.message.includes('Network') ||
-        err.message.includes('Load failed') ||
-        err.message.includes('Failed');
-
-      if (isNetworkError) {
-        return loginLocal(username, password);
+      if (res.ok) {
+        const data = await res.json();
+        saveSession(data.user, data.token);
+        return data.user;
       }
-      throw err;
+    } catch (err) {
+      // Ignora erro de rede e avança para autenticação local
+    }
+
+    // 2. Tenta autenticar no localStore (armazenamento do dispositivo)
+    try {
+      return loginLocal(cleanUser, cleanPass);
+    } catch (err) {
+      throw new Error('Usuário ou senha incorretos');
     }
   };
 
   const register = async (username, displayName, password, avatarColor) => {
+    const cleanUser = (username || '').trim().toLowerCase();
+    const cleanName = (displayName || '').trim();
+    const cleanPass = (password || '').trim();
+    const color = avatarColor || '#3b82f6';
+
+    let backendUser = null;
+    let backendToken = null;
+
+    // 1. Registra no backend se disponível
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -176,33 +193,33 @@ export function AuthProvider({ children }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: username.trim(),
-          display_name: displayName.trim(),
-          password,
-          avatar_color: avatarColor
+          username: cleanUser,
+          display_name: cleanName,
+          password: cleanPass,
+          avatar_color: color
         }),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao criar conta');
-      saveSession(data.user, data.token);
-      return data.user;
-    } catch (err) {
-      const isNetworkError =
-        err.name === 'AbortError' ||
-        err.name === 'TypeError' ||
-        err.message.includes('fetch') ||
-        err.message.includes('Network') ||
-        err.message.includes('Load failed') ||
-        err.message.includes('Failed');
-
-      if (isNetworkError) {
-        return registerLocal(username, displayName, password, avatarColor);
+      if (res.ok) {
+        const data = await res.json();
+        backendUser = data.user;
+        backendToken = data.token;
       }
-      throw err;
+    } catch (err) {
+      // Backend offline
     }
+
+    // 2. Registra e sincroniza sempre no armazenamento local
+    const localUser = registerLocal(cleanUser, cleanName, cleanPass, color);
+
+    if (backendUser && backendToken) {
+      saveSession(backendUser, backendToken);
+      return backendUser;
+    }
+
+    return localUser;
   };
 
   const logout = () => clearSession();

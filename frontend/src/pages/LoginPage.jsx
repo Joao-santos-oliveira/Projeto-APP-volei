@@ -132,10 +132,6 @@ export default function LoginPage() {
               disabled={loginLoading || !loginForm.username || !loginForm.password}>
               {loginLoading ? 'Entrando...' : <><LogIn size={16} /> Entrar</>}
             </button>
-
-            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
-              <strong style={{ color: 'var(--text-secondary)' }}>Admin padrão:</strong> admin / admin123
-            </div>
           </form>
         )}
 
