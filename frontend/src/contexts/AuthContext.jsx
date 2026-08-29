@@ -54,9 +54,15 @@ export function AuthProvider({ children }) {
   // ── Modo localStore / Offline ──────────────────────────────
   const loginLocal = (cleanUsername, cleanPassword) => {
     const users = JSON.parse(localStorage.getItem('volei_users') || '[]');
-    const u = users.find(x => x.username?.toLowerCase() === cleanUsername);
-    if (!u || u.password !== cleanPassword) {
-      throw new Error('Usuário ou senha incorretos');
+    const u = users.find(x =>
+      x.username?.toLowerCase() === cleanUsername ||
+      x.display_name?.toLowerCase() === cleanUsername
+    );
+    if (!u) {
+      throw new Error('Usuário não encontrado');
+    }
+    if (u.password !== cleanPassword) {
+      throw new Error('Senha incorreta para este usuário');
     }
     const fakeToken = `local_${u.id}_${Date.now()}`;
     saveSession(u, fakeToken);
@@ -119,7 +125,6 @@ export function AuthProvider({ children }) {
         const u = await res.json();
         setUser(u);
       } else {
-        // Tenta recuperar sessão local
         const storedUser = localStorage.getItem('volei_local_user');
         if (storedUser) {
           setUser(JSON.parse(storedUser));
@@ -172,7 +177,7 @@ export function AuthProvider({ children }) {
     try {
       return loginLocal(cleanUser, cleanPass);
     } catch (err) {
-      throw new Error('Usuário ou senha incorretos');
+      throw new Error(err.message || 'Usuário ou senha incorretos');
     }
   };
 
@@ -222,6 +227,52 @@ export function AuthProvider({ children }) {
     return localUser;
   };
 
+  const resetPassword = async (username, newPassword) => {
+    const cleanUser = (username || '').trim().toLowerCase();
+    const cleanPass = (newPassword || '').trim();
+
+    let backendUser = null;
+    let backendToken = null;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(`${API_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanUser, new_password: cleanPass }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        backendUser = data.user;
+        backendToken = data.token;
+      }
+    } catch (e) {
+      // Backend offline
+    }
+
+    // Atualiza também no localStore
+    const users = JSON.parse(localStorage.getItem('volei_users') || '[]');
+    const idx = users.findIndex(x => x.username?.toLowerCase() === cleanUser || x.display_name?.toLowerCase() === cleanUser);
+    if (idx >= 0) {
+      users[idx].password = cleanPass;
+      localStorage.setItem('volei_users', JSON.stringify(users));
+      const fakeToken = `local_${users[idx].id}_${Date.now()}`;
+      saveSession(users[idx], fakeToken);
+      return users[idx];
+    }
+
+    if (backendUser && backendToken) {
+      saveSession(backendUser, backendToken);
+      return backendUser;
+    }
+
+    throw new Error('Usuário não encontrado');
+  };
+
   const logout = () => clearSession();
 
   return (
@@ -231,6 +282,7 @@ export function AuthProvider({ children }) {
       loading,
       login,
       register,
+      resetPassword,
       logout,
       isAdmin: user?.is_admin === 1
     }}>

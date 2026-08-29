@@ -50,11 +50,15 @@ router.post('/login', (req, res) => {
       return res.status(400).json({ error: 'username e password são obrigatórios' });
     }
 
-    const user = queryOne('SELECT * FROM users WHERE username = ?', [username.trim().toLowerCase()]);
-    if (!user) return res.status(401).json({ error: 'Usuário ou senha incorretos' });
+    const cleanUser = username.trim().toLowerCase();
+    const user = queryOne(
+      'SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(display_name) = ?',
+      [cleanUser, cleanUser]
+    );
+    if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
 
-    const valid = bcrypt.compareSync(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Usuário ou senha incorretos' });
+    const valid = bcrypt.compareSync(password.trim(), user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Senha incorreta para este usuário' });
 
     const token = jwt.sign({ id: user.id, username: user.username, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -83,13 +87,32 @@ router.get('/me', require('../middleware/auth').requireAuth, (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// GET /api/auth/users  (admin only — lista usuários)
+// POST /api/auth/reset-password
 // ─────────────────────────────────────────────
-router.get('/users', require('../middleware/auth').requireAuth, (req, res) => {
+router.post('/reset-password', (req, res) => {
   try {
-    const { query } = getDb();
-    const users = query('SELECT id, username, display_name, avatar_color, is_admin, created_at FROM users ORDER BY created_at ASC');
-    res.json(users);
+    const { run, queryOne } = getDb();
+    const { username, new_password } = req.body;
+
+    if (!username || !new_password) {
+      return res.status(400).json({ error: 'username e new_password são obrigatórios' });
+    }
+    if (new_password.length < 4) {
+      return res.status(400).json({ error: 'Nova senha deve ter pelo menos 4 caracteres' });
+    }
+
+    const cleanUser = username.trim().toLowerCase();
+    const user = queryOne(
+      'SELECT id, username, display_name, avatar_color, is_admin FROM users WHERE LOWER(username) = ? OR LOWER(display_name) = ?',
+      [cleanUser, cleanUser]
+    );
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const hash = bcrypt.hashSync(new_password.trim(), 10);
+    run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id]);
+
+    const token = jwt.sign({ id: user.id, username: user.username, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ success: true, message: 'Senha atualizada com sucesso', token, user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

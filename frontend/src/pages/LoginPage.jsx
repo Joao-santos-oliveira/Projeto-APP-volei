@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, AVATAR_COLORS } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { Eye, EyeOff, LogIn, UserPlus, Shield } from 'lucide-react';
+import { Eye, EyeOff, LogIn, UserPlus, KeyRound } from 'lucide-react';
 import Logo from '../components/ui/Logo';
 
 export default function LoginPage() {
-  const [tab, setTab] = useState('login');
+  const [tab, setTab] = useState('login'); // 'login' | 'register' | 'reset'
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { login, register, resetPassword } = useAuth();
   const toast = useToast();
 
   // Login
@@ -21,16 +21,21 @@ export default function LoginPage() {
   const [showRegPwd, setShowRegPwd] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
 
+  // Reset Password
+  const [resetForm, setResetForm] = useState({ username: '', new_password: '' });
+  const [showResetPwd, setShowResetPwd] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!loginForm.username || !loginForm.password) return;
+    if (!loginForm.username.trim() || !loginForm.password) return;
     setLoginLoading(true);
     try {
       await login(loginForm.username, loginForm.password);
-      toast('Bem-vindo!', 'success');
+      toast('Login realizado com sucesso!', 'success');
       navigate('/');
     } catch (err) {
-      toast(err.message, 'error');
+      toast(err.message || 'Usuário ou senha incorretos', 'error');
     } finally {
       setLoginLoading(false);
     }
@@ -38,17 +43,39 @@ export default function LoginPage() {
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (!regForm.username || !regForm.display_name || !regForm.password) return;
-    if (regForm.password.length < 4) { toast('Senha precisa ter no mínimo 4 caracteres', 'error'); return; }
+    if (!regForm.username.trim() || !regForm.display_name.trim() || !regForm.password) return;
+    if (regForm.password.length < 4) {
+      toast('A senha precisa ter no mínimo 4 caracteres', 'error');
+      return;
+    }
     setRegLoading(true);
     try {
       await register(regForm.username, regForm.display_name, regForm.password, regForm.avatar_color);
-      toast('Conta criada! Bem-vindo!', 'success');
+      toast('Conta criada com sucesso!', 'success');
       navigate('/');
     } catch (err) {
       toast(err.message, 'error');
     } finally {
       setRegLoading(false);
+    }
+  };
+
+  const handleReset = async (e) => {
+    e.preventDefault();
+    if (!resetForm.username.trim() || !resetForm.new_password) return;
+    if (resetForm.new_password.length < 4) {
+      toast('A nova senha precisa ter no mínimo 4 caracteres', 'error');
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await resetPassword(resetForm.username, resetForm.new_password);
+      toast('Senha redefinida com sucesso!', 'success');
+      navigate('/');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -61,39 +88,43 @@ export default function LoginPage() {
       {/* Fundo decorativo */}
       <div style={{
         position: 'absolute', inset: 0, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse at 20% 50%, rgba(245,197,24,0.06) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(59,130,246,0.06) 0%, transparent 60%)'
+        background: 'radial-gradient(ellipse at 20% 50%, rgba(229,169,60,0.06) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(59,130,246,0.06) 0%, transparent 60%)'
       }} />
 
       {/* Card principal */}
       <div style={{
         background: 'var(--bg-card)', border: '1px solid var(--border)',
-        borderRadius: 24, width: '100%', maxWidth: 440, padding: 40,
-        position: 'relative', boxShadow: '0 24px 64px rgba(0,0,0,0.4)'
+        borderRadius: 16, width: '100%', maxWidth: 440, padding: '36px 32px',
+        position: 'relative', boxShadow: '0 24px 64px rgba(0,0,0,0.5)'
       }}>
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 28, display: 'flex', justifyContent: 'center' }}>
-          <Logo size={48} showText={true} textStyle={{ textAlign: 'left' }} />
+        <div style={{ textAlign: 'center', marginBottom: 26, display: 'flex', justifyContent: 'center' }}>
+          <Logo size={46} showText={true} textStyle={{ textAlign: 'left' }} />
         </div>
 
         {/* Tabs */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4,
-          background: 'var(--bg-elevated)', borderRadius: 12, padding: 4, marginBottom: 28
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4,
+          background: 'var(--bg-elevated)', borderRadius: 8, padding: 3, marginBottom: 24
         }}>
           {[
-            { key: 'login', icon: <LogIn size={15} />, label: 'Entrar' },
-            { key: 'register', icon: <UserPlus size={15} />, label: 'Criar Conta' }
+            { key: 'login',    icon: <LogIn size={13} />,     label: 'ENTRAR' },
+            { key: 'register', icon: <UserPlus size={13} />,  label: 'CRIAR' },
+            { key: 'reset',    icon: <KeyRound size={13} />,  label: 'REDEFINIR' }
           ].map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '10px 16px', borderRadius: 10, fontWeight: 700, fontSize: 14,
-                background: tab === t.key ? 'var(--bg-card)' : 'transparent',
-                color: tab === t.key ? 'var(--text-accent)' : 'var(--text-muted)',
-                border: tab === t.key ? '1px solid var(--border)' : '1px solid transparent',
-                cursor: 'pointer', transition: 'all 0.2s',
-                boxShadow: tab === t.key ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
-              }}>
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                padding: '8px 6px', borderRadius: 6, fontWeight: 800, fontSize: 11,
+                letterSpacing: '0.04em',
+                background: tab === t.key ? 'var(--gold)' : 'transparent',
+                color: tab === t.key ? '#000000' : 'var(--text-muted)',
+                cursor: 'pointer', transition: 'all 0.15s'
+              }}
+            >
               {t.icon} {t.label}
             </button>
           ))}
@@ -101,115 +132,193 @@ export default function LoginPage() {
 
         {/* ── Login Form ── */}
         {tab === 'login' && (
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="form-group">
-              <label className="form-label">Usuário</label>
-              <input className="form-input" autoFocus autoComplete="username"
-                placeholder="Seu nome de usuário"
+              <label className="form-label">USUÁRIO OU APELIDO</label>
+              <input
+                className="form-input"
+                autoFocus
+                autoComplete="username"
+                placeholder="Nome de usuário ou apelido"
                 value={loginForm.username}
-                onChange={e => setLoginForm(f => ({ ...f, username: e.target.value }))} />
+                onChange={e => setLoginForm(f => ({ ...f, username: e.target.value }))}
+              />
             </div>
+
             <div className="form-group">
-              <label className="form-label">Senha</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label className="form-label">SENHA</label>
+                <button
+                  type="button"
+                  onClick={() => setTab('reset')}
+                  style={{ fontSize: 10, color: 'var(--gold)', fontWeight: 700, letterSpacing: '0.04em' }}
+                >
+                  ESQUECEU A SENHA?
+                </button>
+              </div>
+
               <div style={{ position: 'relative' }}>
-                <input className="form-input" autoComplete="current-password"
+                <input
+                  className="form-input"
+                  autoComplete="current-password"
                   type={showPwd ? 'text' : 'password'}
-                  placeholder="Sua senha"
+                  placeholder="Sua senha de acesso"
                   value={loginForm.password}
                   style={{ paddingRight: 44 }}
-                  onChange={e => setLoginForm(f => ({ ...f, password: e.target.value }))} />
-                <button type="button" onClick={() => setShowPwd(s => !s)}
+                  onChange={e => setLoginForm(f => ({ ...f, password: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPwd(s => !s)}
                   style={{
                     position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
                     background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4
-                  }}>
+                  }}
+                >
                   {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ marginTop: 4, fontSize: 15, padding: '12px' }}
-              disabled={loginLoading || !loginForm.username || !loginForm.password}>
-              {loginLoading ? 'Entrando...' : <><LogIn size={16} /> Entrar</>}
+            <button
+              type="submit"
+              className="btn btn-gold w-full"
+              style={{ marginTop: 6, fontSize: 13, padding: '12px' }}
+              disabled={loginLoading || !loginForm.username.trim() || !loginForm.password}
+            >
+              {loginLoading ? 'ENTRANDO...' : <><LogIn size={15} /> ACESSAR SISTEMA</>}
             </button>
           </form>
         )}
 
         {/* ── Register Form ── */}
         {tab === 'register' && (
-          <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Nome de usuário</label>
-                <input className="form-input" autoFocus autoComplete="username"
-                  placeholder="ex: joao_gabriel"
-                  value={regForm.username}
-                  onChange={e => setRegForm(f => ({ ...f, username: e.target.value.replace(/\s/g, '') }))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Como quer ser chamado?</label>
-                <input className="form-input" autoComplete="name"
-                  placeholder="ex: João"
-                  value={regForm.display_name}
-                  onChange={e => setRegForm(f => ({ ...f, display_name: e.target.value }))} />
-              </div>
+          <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="form-group">
+              <label className="form-label">NOME DE USUÁRIO (LOGIN)</label>
+              <input
+                className="form-input"
+                autoFocus
+                autoComplete="username"
+                placeholder="ex: joao, tecnico_rafa"
+                value={regForm.username}
+                onChange={e => setRegForm(f => ({ ...f, username: e.target.value.replace(/\s/g, '') }))}
+              />
             </div>
 
             <div className="form-group">
-              <label className="form-label">Senha</label>
+              <label className="form-label">COMO QUER SER CHAMADO?</label>
+              <input
+                className="form-input"
+                autoComplete="name"
+                placeholder="ex: João Silva"
+                value={regForm.display_name}
+                onChange={e => setRegForm(f => ({ ...f, display_name: e.target.value }))}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">SENHA</label>
               <div style={{ position: 'relative' }}>
-                <input className="form-input" type={showRegPwd ? 'text' : 'password'}
-                  placeholder="Mínimo 4 caracteres" autoComplete="new-password"
+                <input
+                  className="form-input"
+                  type={showRegPwd ? 'text' : 'password'}
+                  placeholder="Mínimo 4 caracteres"
+                  autoComplete="new-password"
                   value={regForm.password}
                   style={{ paddingRight: 44 }}
-                  onChange={e => setRegForm(f => ({ ...f, password: e.target.value }))} />
-                <button type="button" onClick={() => setShowRegPwd(s => !s)}
+                  onChange={e => setRegForm(f => ({ ...f, password: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowRegPwd(s => !s)}
                   style={{
                     position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
                     background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4
-                  }}>
+                  }}
+                >
                   {showRegPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            {/* Cor do avatar */}
+            {/* Cor do Avatar */}
             <div className="form-group">
-              <label className="form-label">Cor do Avatar</label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <label className="form-label">COR DO PERFIL</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
                 {AVATAR_COLORS.map(c => (
-                  <button key={c} type="button"
+                  <button
+                    key={c}
+                    type="button"
                     onClick={() => setRegForm(f => ({ ...f, avatar_color: c }))}
                     style={{
-                      width: 30, height: 30, borderRadius: '50%', background: c,
-                      border: regForm.avatar_color === c ? '3px solid white' : '2px solid transparent',
-                      cursor: 'pointer',
-                      boxShadow: regForm.avatar_color === c ? `0 0 0 2px ${c}` : 'none',
-                      transition: 'all 0.15s'
+                      width: 24, height: 24, borderRadius: 4,
+                      background: c,
+                      border: regForm.avatar_color === c ? '2px solid #FFFFFF' : '1px solid var(--border)',
+                      cursor: 'pointer', transform: regForm.avatar_color === c ? 'scale(1.2)' : 'scale(1)',
+                      transition: 'transform 0.15s'
                     }}
                   />
                 ))}
               </div>
-              {/* Preview do avatar */}
-              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: '50%',
-                  background: `${regForm.avatar_color}22`,
-                  border: `2px solid ${regForm.avatar_color}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 16, fontWeight: 700, color: regForm.avatar_color
-                }}>
-                  {regForm.display_name ? regForm.display_name.charAt(0).toUpperCase() : '?'}
-                </div>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  {regForm.display_name || 'Seu nome'}
-                </span>
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-gold w-full"
+              style={{ marginTop: 6, fontSize: 13, padding: '12px' }}
+              disabled={regLoading || !regForm.username.trim() || !regForm.display_name.trim() || !regForm.password}
+            >
+              {regLoading ? 'CADASTRANDO...' : <><UserPlus size={15} /> CRIAR CONTA & ENTRAR</>}
+            </button>
+          </form>
+        )}
+
+        {/* ── Reset Password Form ── */}
+        {tab === 'reset' && (
+          <form onSubmit={handleReset} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="form-group">
+              <label className="form-label">SEU NOME DE USUÁRIO</label>
+              <input
+                className="form-input"
+                autoFocus
+                placeholder="Informe seu usuário ou apelido"
+                value={resetForm.username}
+                onChange={e => setResetForm(f => ({ ...f, username: e.target.value }))}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">NOVA SENHA</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  className="form-input"
+                  type={showResetPwd ? 'text' : 'password'}
+                  placeholder="Digite sua nova senha"
+                  value={resetForm.new_password}
+                  style={{ paddingRight: 44 }}
+                  onChange={e => setResetForm(f => ({ ...f, new_password: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPwd(s => !s)}
+                  style={{
+                    position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4
+                  }}
+                >
+                  {showResetPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ marginTop: 4, fontSize: 15, padding: '12px' }}
-              disabled={regLoading || !regForm.username || !regForm.display_name || !regForm.password}>
-              {regLoading ? 'Criando conta...' : <><UserPlus size={16} /> Criar Conta</>}
+            <button
+              type="submit"
+              className="btn btn-gold w-full"
+              style={{ marginTop: 6, fontSize: 13, padding: '12px' }}
+              disabled={resetLoading || !resetForm.username.trim() || !resetForm.new_password}
+            >
+              {resetLoading ? 'REDEFININDO...' : <><KeyRound size={15} /> SALVAR NOVA SENHA & ENTRAR</>}
             </button>
           </form>
         )}
