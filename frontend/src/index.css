@@ -2931,3 +2931,140 @@ img { max-width: 100%; display: block; }
     width: 100% !important;
   }
 }
+
+/* ── Observações & Relatórios de Campo (SIDEUP) ── */
+.geo-obs-form {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 14px;
+  margin-bottom: 20px;
+}
+
+.geo-textarea {
+  width: 100%;
+  min-height: 90px;
+  background: #090C12;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px 14px;
+  color: #FFFFFF;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.geo-textarea:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px rgba(229, 169, 60, 0.3);
+}
+
+.geo-textarea::placeholder {
+  color: #64748B;
+  font-size: 12px;
+}
+
+.geo-obs-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.geo-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.geo-obs-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.geo-obs-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius-xs);
+  padding: 14px 16px;
+  transition: background-color 0.2s;
+}
+
+.geo-obs-card.is-author {
+  border-left-color: #3B82F6;
+  background: rgba(15, 20, 31, 0.85);
+}
+
+.geo-obs-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.geo-obs-author-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.geo-author-name {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  color: #FFFFFF;
+}
+
+.geo-admin-chip {
+  background: rgba(229, 169, 60, 0.15);
+  color: var(--gold);
+  border: 1px solid rgba(229, 169, 60, 0.3);
+  font-size: 9px;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+}
+
+.geo-timestamp {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.geo-obs-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.geo-obs-delete:hover {
+  color: #EF4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.geo-obs-body-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
