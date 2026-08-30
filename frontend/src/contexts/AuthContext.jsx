@@ -76,17 +76,17 @@ export function AuthProvider({ children }) {
     return u;
   };
 
-  const registerLocal = (cleanUsername, cleanDisplayName, cleanPassword, avatarColor) => {
+  const registerLocal = (cleanUsername, cleanDisplayName, cleanPassword, avatarColor, explicitId) => {
     const users = JSON.parse(localStorage.getItem('volei_users') || '[]');
     const existingIndex = users.findIndex(x => x.username?.toLowerCase() === cleanUsername);
     
     const newUser = {
-      id: existingIndex >= 0 ? users[existingIndex].id : (users.length > 0 ? Math.max(...users.map(x => x.id || 0)) + 1 : 1),
+      id: explicitId || (existingIndex >= 0 ? users[existingIndex].id : (users.length > 0 ? Math.max(...users.map(x => x.id || 0)) + 1 : 1)),
       username: cleanUsername,
       display_name: cleanDisplayName,
       password: cleanPassword,
       avatar_color: avatarColor || '#3b82f6',
-      is_admin: users.length === 0 ? 1 : 0,
+      is_admin: (cleanUsername === 'admin' || users.length === 0) ? 1 : 0,
       created_at: new Date().toISOString()
     };
 
@@ -121,7 +121,7 @@ export function AuthProvider({ children }) {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1500);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
       const res = await fetch(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${t}` },
         signal: controller.signal
@@ -159,10 +159,9 @@ export function AuthProvider({ children }) {
     const cleanUser = (username || '').trim().toLowerCase();
     const cleanPass = (password || '').trim();
 
-    // 1. Tenta autenticar no backend SQLite
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
       const res = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -174,18 +173,26 @@ export function AuthProvider({ children }) {
       if (res.ok) {
         const data = await res.json();
         saveSession(data.user, data.token);
+        
+        // Sincroniza usuário autenticado com cache local
+        try {
+          const users = JSON.parse(localStorage.getItem('volei_users') || '[]');
+          const idx = users.findIndex(u => u.id === data.user.id || u.username?.toLowerCase() === cleanUser);
+          if (idx >= 0) {
+            users[idx] = { ...users[idx], ...data.user };
+          } else {
+            users.push(data.user);
+          }
+          localStorage.setItem('volei_users', JSON.stringify(users));
+        } catch { /* ignore */ }
+
         return data.user;
       }
     } catch (err) {
-      // Ignora erro de rede e avança para autenticação local
+      console.warn('[AUTH] Servidor remoto inacessível, tentando credenciais locais...', err);
     }
 
-    // 2. Tenta autenticar no localStore (armazenamento do dispositivo)
-    try {
-      return loginLocal(cleanUser, cleanPass);
-    } catch (err) {
-      throw new Error(err.message || 'Usuário ou senha incorretos');
-    }
+    return loginLocal(cleanUser, cleanPass);
   };
 
   const register = async (username, displayName, password, avatarColor) => {
@@ -197,10 +204,10 @@ export function AuthProvider({ children }) {
     let backendUser = null;
     let backendToken = null;
 
-    // 1. Registra no backend se disponível
+    // 1. Registra no backend com timeout seguro
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       const res = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -214,17 +221,21 @@ export function AuthProvider({ children }) {
       });
       clearTimeout(timeoutId);
 
-      if (res.ok) {
-        const data = await res.json();
-        backendUser = data.user;
-        backendToken = data.token;
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao registrar usuário');
       }
+      backendUser = data.user;
+      backendToken = data.token;
     } catch (err) {
-      // Backend offline
+      if (err.message && (err.message.includes('já existe') || err.message.includes('obrigatórios'))) {
+        throw err;
+      }
+      console.warn('[AUTH] Falha ao registrar no backend, salvando localmente:', err);
     }
 
     // 2. Registra e sincroniza sempre no armazenamento local
-    const localUser = registerLocal(cleanUser, cleanName, cleanPass, color);
+    const localUser = registerLocal(cleanUser, cleanName, cleanPass, color, backendUser?.id);
 
     if (backendUser && backendToken) {
       saveSession(backendUser, backendToken);

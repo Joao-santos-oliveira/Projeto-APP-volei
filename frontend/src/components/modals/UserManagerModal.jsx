@@ -13,24 +13,36 @@ export default function UserManagerModal({ isOpen, onClose }) {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      let data = [];
+      let backendList = [];
       try {
-        data = await api.getUsers();
+        const res = await api.getUsers();
+        if (Array.isArray(res)) backendList = res;
       } catch (e) {
-        console.warn('Backend getUsers falhou, buscando localmente:', e);
+        console.warn('Backend getUsers falhou:', e);
       }
 
-      if (!Array.isArray(data) || data.length === 0) {
+      let localList = [];
+      try {
         const raw = localStorage.getItem('volei_users');
-        data = raw ? JSON.parse(raw) : [];
-      }
+        if (raw) localList = JSON.parse(raw);
+      } catch (e) {}
 
-      // Garante que o admin apareça caso não retorne nada
-      if (!data || data.length === 0) {
-        data = [{ id: 1, username: 'admin', display_name: 'Admin', is_admin: 1, avatar_color: '#f5c518' }];
-      }
+      // Combina as duas listas sem duplicatas
+      const map = new Map();
+      
+      // Admin padrão garantido
+      map.set('admin', { id: 1, username: 'admin', display_name: 'Admin', is_admin: 1, avatar_color: '#f5c518' });
 
-      setUsers(data);
+      localList.forEach(u => {
+        if (u && u.username) map.set(u.username.toLowerCase(), u);
+      });
+
+      backendList.forEach(u => {
+        if (u && u.username) map.set(u.username.toLowerCase(), { ...(map.get(u.username.toLowerCase()) || {}), ...u });
+      });
+
+      const merged = Array.from(map.values());
+      setUsers(merged);
     } catch (err) {
       toast(err.message || 'Erro ao carregar usuários', 'error');
     } finally {

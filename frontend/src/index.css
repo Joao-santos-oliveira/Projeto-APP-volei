@@ -3232,3 +3232,201 @@ img { max-width: 100%; display: block; }
   border-color: rgba(239, 68, 68, 0.3);
 }
 
+/* ── Tab Buttons (SIDEUP Tabs) ── */
+.tab-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  padding: 8px 16px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  border-color: var(--border-bright);
+  color: #FFFFFF;
+}
+
+.tab-btn.active {
+  background: rgba(229, 169, 60, 0.15);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* ── Photo Preview ── */
+.photo-preview {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 2px dashed var(--border-bright);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+  color: var(--text-muted);
+}
+
+.photo-preview:hover {
+  border-color: var(--gold);
+  transform: scale(1.03);
+}
+
+.photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Position Chips ── */
+.pos-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pos-chip:hover {
+  border-color: var(--border-bright);
+  color: #FFFFFF;
+}
+
+.pos-chip.active {
+  background: rgba(229, 169, 60, 0.15);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* ── Modal Athlete Selector Grid ── */
+.geo-modal-player-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.geo-modal-athlete-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.geo-modal-athlete-btn:hover {
+  border-color: var(--border-bright);
+  background: var(--bg-elevated);
+}
+
+.geo-modal-athlete-btn.is-selected {
+  border-color: var(--team-blue);
+  background: rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+}
+
+.athlete-btn-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 11px;
+  color: #FFFFFF;
+  overflow: hidden;
+}
+
+.athlete-btn-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.athlete-btn-name {
+  font-size: 11px;
+  font-weight: 800;
+  color: #FFFFFF;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.athlete-btn-pos {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+/* ── Attribute Sliders (SIDEUP Rating Grid) ── */
+.attr-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.attr-slider-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
+
+.attr-slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.attr-slider-label {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  color: #FFFFFF;
+  text-transform: uppercase;
+}
+
+.attr-slider-val {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--gold);
+}
+
+input[type="range"].attr-range {
+  width: 100%;
+  accent-color: var(--gold);
+  height: 6px;
+  cursor: pointer;
+}
+

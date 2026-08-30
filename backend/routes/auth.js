@@ -20,13 +20,16 @@ router.post('/register', (req, res) => {
       return res.status(400).json({ error: 'Senha deve ter pelo menos 4 caracteres' });
     }
 
-    const existing = queryOne('SELECT id FROM users WHERE username = ?', [username]);
+    const cleanUser = username.trim().toLowerCase();
+    const cleanName = display_name.trim();
+
+    const existing = queryOne('SELECT id FROM users WHERE LOWER(username) = ?', [cleanUser]);
     if (existing) return res.status(409).json({ error: 'Nome de usuário já existe' });
 
-    const hash = bcrypt.hashSync(password, 10);
+    const hash = bcrypt.hashSync(password.trim(), 10);
     const r    = run(
       `INSERT INTO users (username, display_name, password_hash, avatar_color) VALUES (?, ?, ?, ?)`,
-      [username.trim().toLowerCase(), display_name.trim(), hash, avatar_color]
+      [cleanUser, cleanName, hash, avatar_color]
     );
 
     const user = queryOne('SELECT id, username, display_name, avatar_color, is_admin, created_at FROM users WHERE id = ?', [r.lastInsertRowid]);
