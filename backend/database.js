@@ -1,35 +1,39 @@
 /**
- * database.js — SQLite via sql.js (WASM, sem compilação nativa)
- * Persiste o banco no arquivo: ./db/volleyball.db
+ * database.js — PostgreSQL (via node-postgres / pg)
+ * Persistência real e permanente — não depende do disco local do servidor,
+ * então sobrevive a deploys, restarts e "sono" por inatividade no Render.
+ *
+ * Requer a variável de ambiente DATABASE_URL (ex: Neon, Supabase, Render Postgres).
  */
-const initSqlJs = require('sql.js');
-const fs        = require('fs');
-const path      = require('path');
-const bcrypt    = require('bcryptjs');
+const { Pool } = require('pg');
+const bcrypt   = require('bcryptjs');
 
-const DB_PATH = path.join(__dirname, 'db', 'volleyball.db');
-const dbDir   = path.join(__dirname, 'db');
-if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+if (!process.env.DATABASE_URL) {
+  console.error('❌ Variável de ambiente DATABASE_URL não definida. Configure-a com a connection string do seu Postgres.');
+}
 
-let db; // instância global
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
+    ? { rejectUnauthorized: false }
+    : false
+});
 
 // ── Schema ────────────────────────────────────────────────────
 const SCHEMA = `
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
-
   CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    id            SERIAL PRIMARY KEY,
+    username      TEXT    NOT NULL UNIQUE,
     display_name  TEXT    NOT NULL,
     password_hash TEXT    NOT NULL,
     avatar_color  TEXT    DEFAULT '#f5c518',
     is_admin      INTEGER DEFAULT 0,
-    created_at    TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
+    created_at    TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
+  CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (LOWER(username));
 
   CREATE TABLE IF NOT EXISTS players (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          SERIAL PRIMARY KEY,
     name        TEXT    NOT NULL,
     nickname    TEXT,
     number      INTEGER,
@@ -37,12 +41,13 @@ const SCHEMA = `
     height      INTEGER,
     primary_position    TEXT NOT NULL DEFAULT 'Ponteiro',
     secondary_positions TEXT DEFAULT '[]',
-    created_at  TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime')),
-    updated_at  TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
+    created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+    updated_at  TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
 
   CREATE TABLE IF NOT EXISTS player_attributes (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            SERIAL PRIMARY KEY,
     player_id     INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     attack        REAL    DEFAULT 5,
     serve         REAL    DEFAULT 5,
@@ -53,11 +58,11 @@ const SCHEMA = `
     communication REAL    DEFAULT 5,
     consistency   REAL    DEFAULT 5,
     versatility   REAL    DEFAULT 5,
-    recorded_at   TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
+    recorded_at   TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
 
   CREATE TABLE IF NOT EXISTS player_ratings (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            SERIAL PRIMARY KEY,
     player_id     INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     user_id       INTEGER NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
     attack        REAL    DEFAULT 5,
@@ -69,26 +74,27 @@ const SCHEMA = `
     communication REAL    DEFAULT 5,
     consistency   REAL    DEFAULT 5,
     versatility   REAL    DEFAULT 5,
-    updated_at    TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime')),
+    updated_at    TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
     UNIQUE(player_id, user_id)
   );
 
   CREATE TABLE IF NOT EXISTS player_observations (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          SERIAL PRIMARY KEY,
     player_id   INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     user_id     INTEGER NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
     text        TEXT    NOT NULL,
-    created_at  TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
+    created_at  TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
 
   CREATE TABLE IF NOT EXISTS teams (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          SERIAL PRIMARY KEY,
     name        TEXT    NOT NULL,
     description TEXT    DEFAULT '',
     color       TEXT    DEFAULT '#f5c518',
     photo       TEXT,
-    created_at  TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime')),
-    updated_at  TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
+    created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+    updated_at  TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
 
   CREATE TABLE IF NOT EXISTS team_players (
@@ -98,13 +104,14 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS matches (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    date        TEXT    DEFAULT (date('now','localtime')),
+    id          SERIAL PRIMARY KEY,
+    date        DATE    DEFAULT CURRENT_DATE,
     home_team   TEXT    DEFAULT 'Equipe A',
     away_team   TEXT    DEFAULT 'Equipe B',
     status      TEXT    DEFAULT 'setup',
     max_sets    INTEGER DEFAULT 5,
-    created_at  TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
+    created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
 
   CREATE TABLE IF NOT EXISTS match_players (
@@ -115,7 +122,7 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS sets (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          SERIAL PRIMARY KEY,
     match_id    INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
     set_number  INTEGER NOT NULL,
     home_score  INTEGER DEFAULT 0,
@@ -125,7 +132,7 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS points (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  SERIAL PRIMARY KEY,
     match_id            INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
     set_id              INTEGER NOT NULL REFERENCES sets(id)    ON DELETE CASCADE,
     player_id           INTEGER REFERENCES players(id),
@@ -133,77 +140,53 @@ const SCHEMA = `
     action              TEXT    NOT NULL,
     home_score_after    INTEGER NOT NULL,
     away_score_after    INTEGER NOT NULL,
-    timestamp           TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now','localtime'))
+    timestamp           TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
 `;
 
 // ── Seed ─────────────────────────────────────────────────────
-function seedPlayers() {
-  // Garante apenas o usuário admin padrão
-  const adminRow = db.exec("SELECT id FROM users WHERE username = 'admin'")[0]?.values[0];
-  if (!adminRow) {
+async function seedAdmin() {
+  const { rows } = await pool.query("SELECT id FROM users WHERE LOWER(username) = 'admin'");
+  if (rows.length === 0) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.run(
+    await pool.query(
       `INSERT INTO users (username, display_name, password_hash, avatar_color, is_admin)
-       VALUES ('admin', 'Admin', ?, '#f5c518', 1)`,
+       VALUES ('admin', 'Admin', $1, '#f5c518', 1)`,
       [hash]
     );
-    console.log('✅ Usuário admin criado (senha: admin123)');
+    console.log('✅ Usuário admin criado (senha: admin123) — troque essa senha depois do primeiro login.');
   }
 }
 
-// ── Salvar banco em disco ─────────────────────────────────────
-function saveToDisk() {
-  const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+// ── Helper: converte placeholders estilo SQLite (?) para Postgres ($1, $2...) ─
+function toPgQuery(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
 }
 
-// ── Helper: rows → objects ────────────────────────────────────
-function rowsToObjects(result) {
-  if (!result || result.length === 0) return [];
-  const { columns, values } = result[0];
-  return values.map(row => {
-    const obj = {};
-    columns.forEach((col, i) => { obj[col] = row[i]; });
-    return obj;
-  });
+// ── API ──────────────────────────────────────────────────────
+async function query(sql, params = []) {
+  const res = await pool.query(toPgQuery(sql), params);
+  return res.rows;
 }
 
-function firstRow(result) {
-  return rowsToObjects(result)[0] || null;
+async function queryOne(sql, params = []) {
+  const rows = await query(sql, params);
+  return rows[0] || null;
 }
 
-// ── API simplificada ──────────────────────────────────────────
-function query(sql, params = []) {
-  return rowsToObjects(db.exec(sql, params));
-}
-
-function queryOne(sql, params = []) {
-  return firstRow(db.exec(sql, params));
-}
-
-function run(sql, params = []) {
-  db.run(sql, params);
-  const lastId = db.exec('SELECT last_insert_rowid() as id')[0]?.values[0][0];
-  saveToDisk();
-  return { lastInsertRowid: lastId };
+async function run(sql, params = []) {
+  const res = await pool.query(toPgQuery(sql), params);
+  const id = res.rows[0]?.id ?? null; // exige RETURNING id nos INSERTs que precisam do id gerado
+  return { lastInsertRowid: id, rowCount: res.rowCount };
 }
 
 // ── Inicialização ─────────────────────────────────────────────
 async function initDatabase() {
-  const SQL = await initSqlJs();
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
-  db.run(SCHEMA);
-  saveToDisk();
-  seedPlayers();
-  saveToDisk();
-  console.log('🗄️  Banco SQLite pronto:', DB_PATH);
-  return { query, queryOne, run, db };
+  await pool.query(SCHEMA);
+  await seedAdmin();
+  console.log('🗄️  Banco Postgres pronto e conectado.');
+  return { query, queryOne, run };
 }
 
 module.exports = { initDatabase, getDb: () => ({ query, queryOne, run }) };

@@ -3,12 +3,12 @@ const router  = express.Router();
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const { getDb } = require('../database');
-const { JWT_SECRET } = require('../middleware/auth');
+const { JWT_SECRET, requireAuth, requireAdmin } = require('../middleware/auth');
 
 // ─────────────────────────────────────────────
 // POST /api/auth/register
 // ─────────────────────────────────────────────
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { run, queryOne } = getDb();
     const { username, display_name, password, avatar_color = '#3b82f6' } = req.body;
@@ -23,16 +23,16 @@ router.post('/register', (req, res) => {
     const cleanUser = username.trim().toLowerCase();
     const cleanName = display_name.trim();
 
-    const existing = queryOne('SELECT id FROM users WHERE LOWER(username) = ?', [cleanUser]);
+    const existing = await queryOne('SELECT id FROM users WHERE LOWER(username) = ?', [cleanUser]);
     if (existing) return res.status(409).json({ error: 'Nome de usuário já existe' });
 
     const hash = bcrypt.hashSync(password.trim(), 10);
-    const r    = run(
-      `INSERT INTO users (username, display_name, password_hash, avatar_color) VALUES (?, ?, ?, ?)`,
+    const r    = await run(
+      `INSERT INTO users (username, display_name, password_hash, avatar_color) VALUES (?, ?, ?, ?) RETURNING id`,
       [cleanUser, cleanName, hash, avatar_color]
     );
 
-    const user = queryOne('SELECT id, username, display_name, avatar_color, is_admin, created_at FROM users WHERE id = ?', [r.lastInsertRowid]);
+    const user = await queryOne('SELECT id, username, display_name, avatar_color, is_admin, created_at FROM users WHERE id = ?', [r.lastInsertRowid]);
     const token = jwt.sign({ id: user.id, username: user.username, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '7d' });
 
     res.status(201).json({ token, user });
@@ -44,7 +44,7 @@ router.post('/register', (req, res) => {
 // ─────────────────────────────────────────────
 // POST /api/auth/login
 // ─────────────────────────────────────────────
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { queryOne } = getDb();
     const { username, password } = req.body;
@@ -54,7 +54,7 @@ router.post('/login', (req, res) => {
     }
 
     const cleanUser = username.trim().toLowerCase();
-    const user = queryOne(
+    const user = await queryOne(
       'SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(display_name) = ?',
       [cleanUser, cleanUser]
     );
@@ -75,10 +75,10 @@ router.post('/login', (req, res) => {
 // ─────────────────────────────────────────────
 // GET /api/auth/me
 // ─────────────────────────────────────────────
-router.get('/me', require('../middleware/auth').requireAuth, (req, res) => {
+router.get('/me', requireAuth, async (req, res) => {
   try {
     const { queryOne } = getDb();
-    const user = queryOne(
+    const user = await queryOne(
       'SELECT id, username, display_name, avatar_color, is_admin, created_at FROM users WHERE id = ?',
       [req.user.id]
     );
@@ -91,8 +91,10 @@ router.get('/me', require('../middleware/auth').requireAuth, (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/auth/reset-password
+// Fluxo de "esqueci minha senha" (usado na tela de login, antes de autenticar).
+// Mantido público como no original — ver aviso de segurança no README sobre isso.
 // ─────────────────────────────────────────────
-router.post('/reset-password', (req, res) => {
+router.post('/reset-password', async (req, res) => {
   try {
     const { run, queryOne } = getDb();
     const { username, new_password } = req.body;
@@ -105,14 +107,14 @@ router.post('/reset-password', (req, res) => {
     }
 
     const cleanUser = username.trim().toLowerCase();
-    const user = queryOne(
+    const user = await queryOne(
       'SELECT id, username, display_name, avatar_color, is_admin FROM users WHERE LOWER(username) = ? OR LOWER(display_name) = ?',
       [cleanUser, cleanUser]
     );
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
 
     const hash = bcrypt.hashSync(new_password.trim(), 10);
-    run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id]);
+    await run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user.id]);
 
     const token = jwt.sign({ id: user.id, username: user.username, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ success: true, message: 'Senha atualizada com sucesso', token, user });
@@ -122,12 +124,20 @@ router.post('/reset-password', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// GET /api/auth/users
+// GET /api/auth/users — apenas admin
+// Lista todas as contas + quantas cartas/times/partidas cada uma criou
 // ─────────────────────────────────────────────
-router.get('/users', (req, res) => {
+router.get('/users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { query } = getDb();
-    const users = query('SELECT id, username, display_name, avatar_color, is_admin, created_at FROM users ORDER BY created_at ASC');
+    const users = await query(`
+      SELECT u.id, u.username, u.display_name, u.avatar_color, u.is_admin, u.created_at,
+             (SELECT COUNT(*) FROM players WHERE created_by = u.id) AS players_created,
+             (SELECT COUNT(*) FROM teams   WHERE created_by = u.id) AS teams_created,
+             (SELECT COUNT(*) FROM matches WHERE created_by = u.id) AS matches_created
+      FROM users u
+      ORDER BY u.created_at ASC
+    `);
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -135,18 +145,18 @@ router.get('/users', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// DELETE /api/auth/users/:id
+// DELETE /api/auth/users/:id — apenas admin
 // ─────────────────────────────────────────────
-router.delete('/users/:id', (req, res) => {
+router.delete('/users/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { run, queryOne } = getDb();
-    const user = queryOne('SELECT * FROM users WHERE id = ?', [req.params.id]);
+    const user = await queryOne('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
     if (user.username.toLowerCase() === 'admin') {
       return res.status(400).json({ error: 'Não é permitido excluir o administrador principal' });
     }
 
-    run('DELETE FROM users WHERE id = ?', [req.params.id]);
+    await run('DELETE FROM users WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Usuário removido com sucesso' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -154,12 +164,12 @@ router.delete('/users/:id', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// POST /api/auth/wipe-users
+// POST /api/auth/wipe-users — apenas admin
 // ─────────────────────────────────────────────
-router.post('/wipe-users', (req, res) => {
+router.post('/wipe-users', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { run } = getDb();
-    run("DELETE FROM users WHERE LOWER(username) != 'admin'");
+    await run("DELETE FROM users WHERE LOWER(username) != 'admin'");
     res.json({ success: true, message: 'Todos os usuários extras foram excluídos com sucesso' });
   } catch (err) {
     res.status(500).json({ error: err.message });

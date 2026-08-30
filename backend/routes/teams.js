@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../database');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
 
 const NOW = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-function getAvgAttributes(query, playerId) {
-  const ratings = query(
+async function getAvgAttributes(query, playerId) {
+  const ratings = await query(
     'SELECT attack,serve,reception,block,defense,setting,communication,consistency,versatility FROM player_ratings WHERE player_id = ?',
     [playerId]
   );
@@ -19,26 +20,22 @@ function getAvgAttributes(query, playerId) {
   return { avg, count: ratings.length };
 }
 
-function buildTeam(team, query) {
+async function buildTeam(team, query) {
   if (!team) return null;
-  const players = query(`
+  const players = await query(`
     SELECT p.id, p.name, p.nickname, p.primary_position, p.secondary_positions, p.number, p.photo, p.height
     FROM team_players tp JOIN players p ON p.id = tp.player_id
     WHERE tp.team_id = ?
     ORDER BY p.name ASC
   `, [team.id]);
 
-  const fullPlayers = players.map(p => {
-    const { avg, count } = getAvgAttributes(query, p.id);
+  const fullPlayers = [];
+  for (const p of players) {
+    const { avg, count } = await getAvgAttributes(query, p.id);
     let secPos = [];
     try { secPos = JSON.parse(p.secondary_positions || '[]'); } catch { secPos = []; }
-    return {
-      ...p,
-      secondary_positions: secPos,
-      attributes: avg,
-      rating_count: count
-    };
-  });
+    fullPlayers.push({ ...p, secondary_positions: secPos, attributes: avg, rating_count: count });
+  }
 
   return {
     ...team,
@@ -50,11 +47,13 @@ function buildTeam(team, query) {
 // ─────────────────────────────────────────────
 // GET /api/teams
 // ─────────────────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { query } = getDb();
-    const teams = query('SELECT * FROM teams ORDER BY name ASC');
-    res.json(teams.map(t => buildTeam(t, query)));
+    const teams = await query('SELECT * FROM teams ORDER BY name ASC');
+    const result = [];
+    for (const t of teams) result.push(await buildTeam(t, query));
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -63,12 +62,12 @@ router.get('/', (req, res) => {
 // ─────────────────────────────────────────────
 // GET /api/teams/:id
 // ─────────────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const { query, queryOne } = getDb();
-    const team = queryOne('SELECT * FROM teams WHERE id = ?', [req.params.id]);
+    const team = await queryOne('SELECT * FROM teams WHERE id = ?', [req.params.id]);
     if (!team) return res.status(404).json({ error: 'Time não encontrado' });
-    res.json(buildTeam(team, query));
+    res.json(await buildTeam(team, query));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -77,24 +76,24 @@ router.get('/:id', (req, res) => {
 // ─────────────────────────────────────────────
 // POST /api/teams
 // ─────────────────────────────────────────────
-router.post('/', (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const { run, query, queryOne } = getDb();
     const { name, description = '', color = '#f5c518', photo = null, player_ids = [] } = req.body;
     if (!name) return res.status(400).json({ error: 'name é obrigatório' });
 
-    const r = run(
-      `INSERT INTO teams (name, description, color, photo, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, description, color, photo, NOW(), NOW()]
+    const r = await run(
+      `INSERT INTO teams (name, description, color, photo, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [name, description, color, photo, req.user.id, NOW(), NOW()]
     );
     const teamId = r.lastInsertRowid;
 
     for (const pid of player_ids) {
-      run('INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)', [teamId, pid]);
+      await run('INSERT INTO team_players (team_id, player_id) VALUES (?, ?) ON CONFLICT (team_id, player_id) DO NOTHING', [teamId, pid]);
     }
 
-    const team = queryOne('SELECT * FROM teams WHERE id = ?', [teamId]);
-    res.status(201).json(buildTeam(team, query));
+    const team = await queryOne('SELECT * FROM teams WHERE id = ?', [teamId]);
+    res.status(201).json(await buildTeam(team, query));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -103,13 +102,13 @@ router.post('/', (req, res) => {
 // ─────────────────────────────────────────────
 // PUT /api/teams/:id
 // ─────────────────────────────────────────────
-router.put('/:id', (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { run, query, queryOne } = getDb();
     const id = req.params.id;
     const { name, description, color, photo, player_ids } = req.body;
 
-    const team = queryOne('SELECT * FROM teams WHERE id = ?', [id]);
+    const team = await queryOne('SELECT * FROM teams WHERE id = ?', [id]);
     if (!team) return res.status(404).json({ error: 'Time não encontrado' });
 
     const updates = [];
@@ -122,19 +121,18 @@ router.put('/:id', (req, res) => {
     vals.push(id);
 
     if (updates.length > 1) {
-      run(`UPDATE teams SET ${updates.join(', ')} WHERE id = ?`, vals);
+      await run(`UPDATE teams SET ${updates.join(', ')} WHERE id = ?`, vals);
     }
 
-    // Atualizar lista de jogadores se enviada
     if (player_ids !== undefined) {
-      run('DELETE FROM team_players WHERE team_id = ?', [id]);
+      await run('DELETE FROM team_players WHERE team_id = ?', [id]);
       for (const pid of player_ids) {
-        run('INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)', [id, pid]);
+        await run('INSERT INTO team_players (team_id, player_id) VALUES (?, ?) ON CONFLICT (team_id, player_id) DO NOTHING', [id, pid]);
       }
     }
 
-    const updated = queryOne('SELECT * FROM teams WHERE id = ?', [id]);
-    res.json(buildTeam(updated, query));
+    const updated = await queryOne('SELECT * FROM teams WHERE id = ?', [id]);
+    res.json(await buildTeam(updated, query));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -143,13 +141,13 @@ router.put('/:id', (req, res) => {
 // ─────────────────────────────────────────────
 // DELETE /api/teams/:id
 // ─────────────────────────────────────────────
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { run, queryOne } = getDb();
-    if (!queryOne('SELECT id FROM teams WHERE id = ?', [req.params.id])) {
+    if (!(await queryOne('SELECT id FROM teams WHERE id = ?', [req.params.id]))) {
       return res.status(404).json({ error: 'Time não encontrado' });
     }
-    run('DELETE FROM teams WHERE id = ?', [req.params.id]);
+    await run('DELETE FROM teams WHERE id = ?', [req.params.id]);
     res.json({ message: 'Time removido' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -159,14 +157,14 @@ router.delete('/:id', (req, res) => {
 // ─────────────────────────────────────────────
 // POST /api/teams/:id/players  — adicionar jogador
 // ─────────────────────────────────────────────
-router.post('/:id/players', (req, res) => {
+router.post('/:id/players', requireAuth, async (req, res) => {
   try {
     const { run, query, queryOne } = getDb();
     const { player_id } = req.body;
-    const team = queryOne('SELECT * FROM teams WHERE id = ?', [req.params.id]);
+    const team = await queryOne('SELECT * FROM teams WHERE id = ?', [req.params.id]);
     if (!team) return res.status(404).json({ error: 'Time não encontrado' });
-    run('INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)', [req.params.id, player_id]);
-    res.json(buildTeam(team, query));
+    await run('INSERT INTO team_players (team_id, player_id) VALUES (?, ?) ON CONFLICT (team_id, player_id) DO NOTHING', [req.params.id, player_id]);
+    res.json(await buildTeam(team, query));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -175,13 +173,13 @@ router.post('/:id/players', (req, res) => {
 // ─────────────────────────────────────────────
 // DELETE /api/teams/:id/players/:playerId
 // ─────────────────────────────────────────────
-router.delete('/:id/players/:playerId', (req, res) => {
+router.delete('/:id/players/:playerId', requireAuth, async (req, res) => {
   try {
     const { run, query, queryOne } = getDb();
-    const team = queryOne('SELECT * FROM teams WHERE id = ?', [req.params.id]);
+    const team = await queryOne('SELECT * FROM teams WHERE id = ?', [req.params.id]);
     if (!team) return res.status(404).json({ error: 'Time não encontrado' });
-    run('DELETE FROM team_players WHERE team_id = ? AND player_id = ?', [req.params.id, req.params.playerId]);
-    res.json(buildTeam(team, query));
+    await run('DELETE FROM team_players WHERE team_id = ? AND player_id = ?', [req.params.id, req.params.playerId]);
+    res.json(await buildTeam(team, query));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

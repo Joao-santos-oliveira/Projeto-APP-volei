@@ -6,8 +6,8 @@ const { requireAuth, optionalAuth } = require('../middleware/auth');
 const NOW = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
 // Helper: calcula atributos médios de todas as avaliações de um jogador
-function getAvgAttributes(query, playerId) {
-  const ratings = query(
+async function getAvgAttributes(query, playerId) {
+  const ratings = await query(
     'SELECT attack,serve,reception,block,defense,setting,communication,consistency,versatility FROM player_ratings WHERE player_id = ?',
     [playerId]
   );
@@ -24,26 +24,27 @@ function getAvgAttributes(query, playerId) {
 // ─────────────────────────────────────────────
 // GET /api/players
 // ─────────────────────────────────────────────
-router.get('/', optionalAuth, (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   try {
     const { query } = getDb();
-    const players = query('SELECT * FROM players ORDER BY name ASC');
+    const players = await query('SELECT * FROM players ORDER BY name ASC');
 
-    const result = players.map(p => {
-      const { avg, count } = getAvgAttributes(query, p.id);
+    const result = [];
+    for (const p of players) {
+      const { avg, count } = await getAvgAttributes(query, p.id);
       const sp = (() => { try { return JSON.parse(p.secondary_positions || '[]'); } catch { return []; } })();
 
-      // Avaliação pessoal do usuário logado (se houver)
       let my_rating = null;
       if (req.user) {
-        my_rating = query(
+        const rows = await query(
           'SELECT * FROM player_ratings WHERE player_id = ? AND user_id = ?',
           [p.id, req.user.id]
-        )[0] || null;
+        );
+        my_rating = rows[0] || null;
       }
 
-      return { ...p, secondary_positions: sp, attributes: avg, rating_count: count, my_rating };
-    });
+      result.push({ ...p, secondary_positions: sp, attributes: avg, rating_count: count, my_rating });
+    }
 
     res.json(result);
   } catch (err) {
@@ -54,25 +55,23 @@ router.get('/', optionalAuth, (req, res) => {
 // ─────────────────────────────────────────────
 // GET /api/players/:id
 // ─────────────────────────────────────────────
-router.get('/:id', optionalAuth, (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const { query, queryOne } = getDb();
-    const player = queryOne('SELECT * FROM players WHERE id = ?', [req.params.id]);
+    const player = await queryOne('SELECT * FROM players WHERE id = ?', [req.params.id]);
     if (!player) return res.status(404).json({ error: 'Jogador não encontrado' });
 
-    const { avg, count } = getAvgAttributes(query, req.params.id);
+    const { avg, count } = await getAvgAttributes(query, req.params.id);
 
-    // Avaliação pessoal do usuário logado
     let my_rating = null;
     if (req.user) {
-      my_rating = queryOne(
+      my_rating = await queryOne(
         'SELECT * FROM player_ratings WHERE player_id = ? AND user_id = ?',
         [req.params.id, req.user.id]
       );
     }
 
-    // Todas as avaliações com info do avaliador
-    const all_ratings = query(`
+    const all_ratings = await query(`
       SELECT pr.*, 
              COALESCE(u.display_name, 'Comissão') as display_name, 
              COALESCE(u.avatar_color, '#E5A93C') as avatar_color
@@ -82,8 +81,7 @@ router.get('/:id', optionalAuth, (req, res) => {
       ORDER BY pr.updated_at DESC
     `, [req.params.id]);
 
-    // Observações (feed acumulativo com autor)
-    const observations = query(`
+    const observations = await query(`
       SELECT po.id, po.text, po.created_at, po.user_id,
              COALESCE(u.display_name, 'Comissão Técnica') as display_name,
              COALESCE(u.username, 'admin') as username,
@@ -95,14 +93,12 @@ router.get('/:id', optionalAuth, (req, res) => {
       ORDER BY po.created_at DESC
     `, [req.params.id]);
 
-    // Histórico de atributos (legado)
-    const history = query('SELECT * FROM player_attributes WHERE player_id = ? ORDER BY recorded_at ASC', [req.params.id]);
+    const history = await query('SELECT * FROM player_attributes WHERE player_id = ? ORDER BY recorded_at ASC', [req.params.id]);
 
-    // Stats de jogo
-    const byAction    = query('SELECT action, COUNT(*) as count, team FROM points WHERE player_id = ? GROUP BY action, team', [req.params.id]);
-    const totalActs   = queryOne('SELECT COUNT(*) as c FROM points WHERE player_id = ?', [req.params.id]);
-    const pointsMade  = queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action IN ('attack_point','serve_ace','block_point','opponent_error')`, [req.params.id]);
-    const errors      = queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action LIKE '%_error'`, [req.params.id]);
+    const byAction    = await query('SELECT action, COUNT(*) as count, team FROM points WHERE player_id = ? GROUP BY action, team', [req.params.id]);
+    const totalActs   = await queryOne('SELECT COUNT(*) as c FROM points WHERE player_id = ?', [req.params.id]);
+    const pointsMade  = await queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action IN ('attack_point','serve_ace','block_point','opponent_error')`, [req.params.id]);
+    const errors      = await queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action LIKE '%_error'`, [req.params.id]);
 
     res.json({
       ...player,
@@ -114,9 +110,9 @@ router.get('/:id', optionalAuth, (req, res) => {
       observations,
       attribute_history: history,
       game_stats: {
-        total_actions: totalActs?.c || 0,
-        points_made: pointsMade?.c || 0,
-        errors: errors?.c || 0,
+        total_actions: Number(totalActs?.c) || 0,
+        points_made: Number(pointsMade?.c) || 0,
+        errors: Number(errors?.c) || 0,
         by_action: byAction
       }
     });
@@ -128,38 +124,40 @@ router.get('/:id', optionalAuth, (req, res) => {
 // ─────────────────────────────────────────────
 // POST /api/players
 // ─────────────────────────────────────────────
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const { run, queryOne } = getDb();
     const { name, nickname, number, photo, height, primary_position, secondary_positions = [], attributes = {} } = req.body;
     if (!name || !primary_position) return res.status(400).json({ error: 'name e primary_position são obrigatórios' });
 
-    const r = run(
-      `INSERT INTO players (name, nickname, number, photo, height, primary_position, secondary_positions, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    const r = await run(
+      `INSERT INTO players (name, nickname, number, photo, height, primary_position, secondary_positions, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       [name, nickname||null, number||null, photo||null, height||null, primary_position,
-       JSON.stringify(secondary_positions), NOW(), NOW()]
+       JSON.stringify(secondary_positions), req.user.id, NOW(), NOW()]
     );
     const id = r.lastInsertRowid;
 
-    // Avaliação inicial do criador
     const defaultAttrs = { attack:5, serve:5, reception:5, block:5, defense:5, setting:5, communication:5, consistency:5, versatility:5, ...attributes };
-    run(
-      `INSERT OR REPLACE INTO player_ratings (player_id, user_id, attack, serve, reception, block, defense, setting, communication, consistency, versatility, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    await run(
+      `INSERT INTO player_ratings (player_id, user_id, attack, serve, reception, block, defense, setting, communication, consistency, versatility, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (player_id, user_id) DO UPDATE SET
+         attack=EXCLUDED.attack, serve=EXCLUDED.serve, reception=EXCLUDED.reception, block=EXCLUDED.block,
+         defense=EXCLUDED.defense, setting=EXCLUDED.setting, communication=EXCLUDED.communication,
+         consistency=EXCLUDED.consistency, versatility=EXCLUDED.versatility, updated_at=EXCLUDED.updated_at`,
       [id, req.user.id, defaultAttrs.attack, defaultAttrs.serve, defaultAttrs.reception, defaultAttrs.block,
        defaultAttrs.defense, defaultAttrs.setting, defaultAttrs.communication, defaultAttrs.consistency, defaultAttrs.versatility, NOW()]
     );
 
-    // Histórico legado
-    run(
+    await run(
       `INSERT INTO player_attributes (player_id, attack, serve, reception, block, defense, setting, communication, consistency, versatility, recorded_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, defaultAttrs.attack, defaultAttrs.serve, defaultAttrs.reception, defaultAttrs.block,
        defaultAttrs.defense, defaultAttrs.setting, defaultAttrs.communication, defaultAttrs.consistency, defaultAttrs.versatility, NOW()]
     );
 
-    const player = queryOne('SELECT * FROM players WHERE id = ?', [id]);
+    const player = await queryOne('SELECT * FROM players WHERE id = ?', [id]);
     res.status(201).json({ ...player, secondary_positions: JSON.parse(player.secondary_positions || '[]') });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -169,13 +167,13 @@ router.post('/', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 // PUT /api/players/:id — editar dados básicos
 // ─────────────────────────────────────────────
-router.put('/:id', requireAuth, (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { run, queryOne } = getDb();
     const id = req.params.id;
     const { name, nickname, number, photo, height, primary_position, secondary_positions } = req.body;
 
-    const player = queryOne('SELECT * FROM players WHERE id = ?', [id]);
+    const player = await queryOne('SELECT * FROM players WHERE id = ?', [id]);
     if (!player) return res.status(404).json({ error: 'Jogador não encontrado' });
 
     const updates = [], vals = [];
@@ -188,9 +186,9 @@ router.put('/:id', requireAuth, (req, res) => {
     if (secondary_positions !== undefined) { updates.push('secondary_positions = ?'); vals.push(JSON.stringify(secondary_positions)); }
     updates.push('updated_at = ?'); vals.push(NOW()); vals.push(id);
 
-    if (updates.length > 1) run(`UPDATE players SET ${updates.join(', ')} WHERE id = ?`, vals);
+    if (updates.length > 1) await run(`UPDATE players SET ${updates.join(', ')} WHERE id = ?`, vals);
 
-    const updated = queryOne('SELECT * FROM players WHERE id = ?', [id]);
+    const updated = await queryOne('SELECT * FROM players WHERE id = ?', [id]);
     res.json({ ...updated, secondary_positions: JSON.parse(updated.secondary_positions || '[]') });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -200,13 +198,13 @@ router.put('/:id', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 // POST /api/players/:id/rating — avaliação pessoal do usuário logado
 // ─────────────────────────────────────────────
-router.post('/:id/rating', requireAuth, (req, res) => {
+router.post('/:id/rating', requireAuth, async (req, res) => {
   try {
     const { run, queryOne, query } = getDb();
     const playerId = req.params.id;
     const userId   = req.user.id;
 
-    if (!queryOne('SELECT id FROM players WHERE id = ?', [playerId])) {
+    if (!(await queryOne('SELECT id FROM players WHERE id = ?', [playerId]))) {
       return res.status(404).json({ error: 'Jogador não encontrado' });
     }
 
@@ -214,23 +212,26 @@ router.post('/:id/rating', requireAuth, (req, res) => {
     const keys  = ['attack','serve','reception','block','defense','setting','communication','consistency','versatility'];
     const vals  = keys.map(k => parseFloat(attrs[k]) || 5);
 
-    run(
-      `INSERT OR REPLACE INTO player_ratings
+    await run(
+      `INSERT INTO player_ratings
          (player_id, user_id, attack, serve, reception, block, defense, setting, communication, consistency, versatility, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (player_id, user_id) DO UPDATE SET
+         attack=EXCLUDED.attack, serve=EXCLUDED.serve, reception=EXCLUDED.reception, block=EXCLUDED.block,
+         defense=EXCLUDED.defense, setting=EXCLUDED.setting, communication=EXCLUDED.communication,
+         consistency=EXCLUDED.consistency, versatility=EXCLUDED.versatility, updated_at=EXCLUDED.updated_at`,
       [playerId, userId, ...vals, NOW()]
     );
 
-    // Também salva snapshot no histórico legado
-    run(
+    await run(
       `INSERT INTO player_attributes
          (player_id, attack, serve, reception, block, defense, setting, communication, consistency, versatility, recorded_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [playerId, ...vals, NOW()]
     );
 
-    const { avg, count } = getAvgAttributes(query, playerId);
-    const my_rating = queryOne('SELECT * FROM player_ratings WHERE player_id = ? AND user_id = ?', [playerId, userId]);
+    const { avg, count } = await getAvgAttributes(query, playerId);
+    const my_rating = await queryOne('SELECT * FROM player_ratings WHERE player_id = ? AND user_id = ?', [playerId, userId]);
     res.json({ avg_attributes: avg, rating_count: count, my_rating });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -240,26 +241,25 @@ router.post('/:id/rating', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 // POST /api/players/:id/observations — nova observação
 // ─────────────────────────────────────────────
-router.post('/:id/observations', requireAuth, (req, res) => {
+router.post('/:id/observations', requireAuth, async (req, res) => {
   try {
     const { run, query, queryOne } = getDb();
     const { text } = req.body;
     if (!text?.trim()) return res.status(400).json({ error: 'Texto é obrigatório' });
 
-    if (!queryOne('SELECT id FROM players WHERE id = ?', [req.params.id])) {
+    if (!(await queryOne('SELECT id FROM players WHERE id = ?', [req.params.id]))) {
       return res.status(404).json({ error: 'Jogador não encontrado' });
     }
 
-    // Valida se o user_id existe no banco, caso contrário usa o admin
-    const userExists = queryOne('SELECT id FROM users WHERE id = ?', [req.user?.id]);
-    const effectiveUserId = userExists ? userExists.id : (queryOne("SELECT id FROM users WHERE LOWER(username) = 'admin'")?.id || 1);
+    const userExists = await queryOne('SELECT id FROM users WHERE id = ?', [req.user?.id]);
+    const effectiveUserId = userExists ? userExists.id : ((await queryOne("SELECT id FROM users WHERE LOWER(username) = 'admin'"))?.id || 1);
 
-    run(
+    await run(
       'INSERT INTO player_observations (player_id, user_id, text, created_at) VALUES (?, ?, ?, ?)',
       [req.params.id, effectiveUserId, text.trim(), NOW()]
     );
 
-    const observations = query(`
+    const observations = await query(`
       SELECT po.id, po.text, po.created_at, po.user_id,
              COALESCE(u.display_name, 'Comissão Técnica') as display_name,
              COALESCE(u.username, 'admin') as username,
@@ -280,15 +280,15 @@ router.post('/:id/observations', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 // DELETE /api/players/:id/observations/:obsId
 // ─────────────────────────────────────────────
-router.delete('/:id/observations/:obsId', requireAuth, (req, res) => {
+router.delete('/:id/observations/:obsId', requireAuth, async (req, res) => {
   try {
     const { run, queryOne, query } = getDb();
-    const obs = queryOne('SELECT * FROM player_observations WHERE id = ?', [req.params.obsId]);
+    const obs = await queryOne('SELECT * FROM player_observations WHERE id = ?', [req.params.obsId]);
     if (!obs) return res.status(404).json({ error: 'Observação não encontrada' });
 
-    run('DELETE FROM player_observations WHERE id = ?', [req.params.obsId]);
+    await run('DELETE FROM player_observations WHERE id = ?', [req.params.obsId]);
 
-    const observations = query(`
+    const observations = await query(`
       SELECT po.id, po.text, po.created_at, po.user_id,
              COALESCE(u.display_name, 'Comissão Técnica') as display_name,
              COALESCE(u.username, 'admin') as username,
@@ -309,13 +309,13 @@ router.delete('/:id/observations/:obsId', requireAuth, (req, res) => {
 // ─────────────────────────────────────────────
 // DELETE /api/players/:id
 // ─────────────────────────────────────────────
-router.delete('/:id', requireAuth, (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { run, queryOne } = getDb();
-    if (!queryOne('SELECT id FROM players WHERE id = ?', [req.params.id])) {
+    if (!(await queryOne('SELECT id FROM players WHERE id = ?', [req.params.id]))) {
       return res.status(404).json({ error: 'Jogador não encontrado' });
     }
-    run('DELETE FROM players WHERE id = ?', [req.params.id]);
+    await run('DELETE FROM players WHERE id = ?', [req.params.id]);
     res.json({ message: 'Jogador removido' });
   } catch (err) {
     res.status(500).json({ error: err.message });
