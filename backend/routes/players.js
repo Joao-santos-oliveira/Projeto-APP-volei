@@ -21,18 +21,61 @@ async function getAvgAttributes(query, playerId) {
   return { avg, count: ratings.length };
 }
 
+// Helper: calcula estatísticas detalhadas de jogo e contexto de equipe do jogador
+async function getPlayerGameStats(query, queryOne, playerId) {
+  const byAction   = await query('SELECT action, COUNT(*) as count, team FROM points WHERE player_id = ? GROUP BY action, team', [playerId]);
+  const totalActs  = await queryOne('SELECT COUNT(*) as c FROM points WHERE player_id = ?', [playerId]);
+  const pointsMade = await queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action IN ('attack_point','serve_ace','block_point','opponent_error')`, [playerId]);
+  const errors     = await queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action LIKE '%_error'`, [playerId]);
+
+  const teamMatches = await query(`SELECT match_id, team FROM match_players WHERE player_id = ?`, [playerId]);
+  const matchesPlayed = teamMatches.length;
+
+  let teamAttackPoints = 0;
+  let teamAttackErrors = 0;
+  let teamPointsTotal = 0;
+
+  if (matchesPlayed > 0) {
+    const teamStats = await queryOne(`
+      SELECT 
+        SUM(CASE WHEN pt.action = 'attack_point' AND pt.team = mp.team THEN 1 ELSE 0 END) as team_atk_pts,
+        SUM(CASE WHEN pt.action = 'attack_error' AND pt.team = mp.team THEN 1 ELSE 0 END) as team_atk_errs,
+        SUM(CASE WHEN pt.team = mp.team THEN 1 ELSE 0 END) as team_pts_total
+      FROM match_players mp
+      JOIN points pt ON pt.match_id = mp.match_id
+      WHERE mp.player_id = ?
+    `, [playerId]);
+
+    teamAttackPoints = Number(teamStats?.team_atk_pts) || 0;
+    teamAttackErrors = Number(teamStats?.team_atk_errs) || 0;
+    teamPointsTotal = Number(teamStats?.team_pts_total) || 0;
+  }
+
+  return {
+    total_actions: Number(totalActs?.c) || 0,
+    points_made: Number(pointsMade?.c) || 0,
+    errors: Number(errors?.c) || 0,
+    by_action: byAction,
+    matches_played: matchesPlayed,
+    team_attack_points: teamAttackPoints,
+    team_attack_errors: teamAttackErrors,
+    team_points_total: teamPointsTotal
+  };
+}
+
 // ─────────────────────────────────────────────
 // GET /api/players
 // ─────────────────────────────────────────────
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const { query } = getDb();
+    const { query, queryOne } = getDb();
     const players = await query('SELECT * FROM players ORDER BY name ASC');
 
     const result = [];
     for (const p of players) {
       const { avg, count } = await getAvgAttributes(query, p.id);
       const sp = (() => { try { return JSON.parse(p.secondary_positions || '[]'); } catch { return []; } })();
+      const gameStats = await getPlayerGameStats(query, queryOne, p.id);
 
       let my_rating = null;
       if (req.user) {
@@ -43,7 +86,14 @@ router.get('/', optionalAuth, async (req, res) => {
         my_rating = rows[0] || null;
       }
 
-      result.push({ ...p, secondary_positions: sp, attributes: avg, rating_count: count, my_rating });
+      result.push({
+        ...p,
+        secondary_positions: sp,
+        attributes: avg,
+        rating_count: count,
+        my_rating,
+        game_stats: gameStats
+      });
     }
 
     res.json(result);
@@ -94,11 +144,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
     `, [req.params.id]);
 
     const history = await query('SELECT * FROM player_attributes WHERE player_id = ? ORDER BY recorded_at ASC', [req.params.id]);
-
-    const byAction    = await query('SELECT action, COUNT(*) as count, team FROM points WHERE player_id = ? GROUP BY action, team', [req.params.id]);
-    const totalActs   = await queryOne('SELECT COUNT(*) as c FROM points WHERE player_id = ?', [req.params.id]);
-    const pointsMade  = await queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action IN ('attack_point','serve_ace','block_point','opponent_error')`, [req.params.id]);
-    const errors      = await queryOne(`SELECT COUNT(*) as c FROM points WHERE player_id = ? AND action LIKE '%_error'`, [req.params.id]);
+    const gameStats = await getPlayerGameStats(query, queryOne, req.params.id);
 
     res.json({
       ...player,
@@ -109,12 +155,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
       all_ratings,
       observations,
       attribute_history: history,
-      game_stats: {
-        total_actions: Number(totalActs?.c) || 0,
-        points_made: Number(pointsMade?.c) || 0,
-        errors: Number(errors?.c) || 0,
-        by_action: byAction
-      }
+      game_stats: gameStats
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

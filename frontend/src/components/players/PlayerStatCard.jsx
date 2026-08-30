@@ -125,7 +125,9 @@ export default function PlayerStatCard({ player }) {
                   </div>
 
                   <div className="geo-stat-attr-meta">
-                    {attr.points !== undefined && attr.err !== undefined ? (
+                    {attr.customMeta ? (
+                      <span>{attr.customMeta}</span>
+                    ) : attr.points !== undefined && attr.err !== undefined ? (
                       <span>{attr.points} acertos · {attr.err} erros {attr.eff !== undefined ? `(${attr.eff.toFixed(0)}% efic.)` : ''}</span>
                     ) : (
                       <span>{attr.err} erros registrados</span>
@@ -140,7 +142,7 @@ export default function PlayerStatCard({ player }) {
         {/* Descriptive Footer Notice */}
         <div className="geo-stat-disclaimer">
           <p>
-            ℹ️ <strong>Critério Técnico:</strong> Esta ficha quantifica exclusivamente o desempenho do atleta durante os confrontos oficiais registrados na plataforma (ataques convertidos, erros de fundamentos, aces, bloqueios e saldo de pontos). Não sofre influência de notas manuais nem pode ser alterada por atletas ou administradores.
+            ℹ️ <strong>Critério Técnico:</strong> Esta ficha quantifica exclusivamente o desempenho do atleta durante os confrontos oficiais registrados na plataforma (ataques convertidos, aces, bloqueios, erros e saldo, além da conversão de ataques coletivos para <strong>Levantadores</strong> e presença e estabilidade defensiva para <strong>Líberos</strong>). Totalmente imutável e livre de notas subjetivas.
           </p>
         </div>
       </div>

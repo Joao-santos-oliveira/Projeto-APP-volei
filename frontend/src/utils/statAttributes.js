@@ -3,6 +3,10 @@
  * Cálculo de atributos 100% puramente estatísticos derivados das ações reais
  * de jogo e scouts registrados em partidas.
  * Totalmente imutável e livre de subjetividade de avaliações manuais.
+ * 
+ * Inclui correlação tática para funções estratégicas:
+ * - Levantadores: herdam a eficácia de distribuição e conversão de ataques da equipe em quadra.
+ * - Líberos: herdam o volume defensivo e estabilidade de passe nos confrontos disputados.
  */
 
 export function calculateStatAttributes(player) {
@@ -11,6 +15,11 @@ export function calculateStatAttributes(player) {
   const pointsMade = stats.points_made || 0;
   const errors = stats.errors || 0;
   const byAction = stats.by_action || [];
+
+  const matchesPlayed = stats.matches_played || 0;
+  const teamAttackPoints = stats.team_attack_points || 0;
+  const teamAttackErrors = stats.team_attack_errors || 0;
+  const teamPointsTotal = stats.team_points_total || 0;
 
   const counts = {
     attack_point: 0,
@@ -31,7 +40,9 @@ export function calculateStatAttributes(player) {
     }
   });
 
-  const hasGameData = totalActions > 0;
+  const isSetter = player?.primary_position === 'Levantador';
+  const isLibero = player?.primary_position === 'Líbero';
+  const hasGameData = totalActions > 0 || matchesPlayed > 0 || teamAttackPoints > 0;
 
   // 1. Ataque (ATQ)
   const attackTotal = counts.attack_point + counts.attack_error;
@@ -74,24 +85,37 @@ export function calculateStatAttributes(player) {
   blockScore = Math.min(99, Math.max(10, blockScore));
 
   // 4. Recepção / Defesa (DEF)
-  let defScore = 60;
-  if (totalActions > 0) {
-    const errorPenalty = counts.reception_error * 4;
-    const cleanRatio = Math.max(0, 1 - (counts.reception_error / Math.max(1, totalActions * 0.4)));
-    defScore = Math.round(55 + (cleanRatio * 35) - errorPenalty + Math.min(10, totalActions * 0.3));
-  } else if (player?.primary_position === 'Líbero') {
-    defScore = 65;
+  let defScore = isLibero ? 65 : 60;
+  const effectiveDefVolume = isLibero ? Math.max(totalActions, matchesPlayed * 15, teamPointsTotal * 0.4) : totalActions;
+  
+  if (effectiveDefVolume > 0) {
+    if (isLibero) {
+      const cleanPassRate = Math.max(0, 1 - (counts.reception_error / Math.max(1, effectiveDefVolume * 0.2)));
+      const defVolBonus = Math.min(18, (matchesPlayed * 4) + (effectiveDefVolume * 0.15));
+      const passPenalty = counts.reception_error * 6;
+      defScore = Math.round(55 + (cleanPassRate * 25) + defVolBonus - passPenalty);
+    } else {
+      const errorPenalty = counts.reception_error * 4;
+      const cleanRatio = Math.max(0, 1 - (counts.reception_error / Math.max(1, totalActions * 0.4)));
+      defScore = Math.round(55 + (cleanRatio * 35) - errorPenalty + Math.min(10, totalActions * 0.3));
+    }
   }
   defScore = Math.min(99, Math.max(10, defScore));
 
   // 5. Levantamento / Armação (LEV)
-  let levScore = 60;
-  if (totalActions > 0) {
+  let levScore = isSetter ? 65 : 60;
+  const teamAttackTotal = teamAttackPoints + teamAttackErrors;
+
+  if (isSetter && (teamAttackTotal > 0 || matchesPlayed > 0 || totalActions > 0)) {
+    const teamKillRate = teamAttackTotal > 0 ? (teamAttackPoints / teamAttackTotal) : 0.5;
+    const cleanSettingRate = Math.max(0, 1 - (counts.setting_error / Math.max(1, (teamAttackPoints * 0.25) + (totalActions * 0.3) + 1)));
+    const distribBonus = Math.min(18, (teamAttackPoints * 1.3) + (matchesPlayed * 2));
+    const settingErrorPenalty = counts.setting_error * 6;
+    levScore = Math.round(52 + (cleanSettingRate * 24) + (teamKillRate * 12) + distribBonus - settingErrorPenalty);
+  } else if (totalActions > 0) {
     const settingErrorPenalty = counts.setting_error * 5;
     const cleanRate = Math.max(0, 1 - (counts.setting_error / Math.max(1, totalActions * 0.3)));
     levScore = Math.round(55 + (cleanRate * 35) - settingErrorPenalty + Math.min(10, totalActions * 0.2));
-  } else if (player?.primary_position === 'Levantador') {
-    levScore = 65;
   }
   levScore = Math.min(99, Math.max(10, levScore));
 
@@ -102,6 +126,8 @@ export function calculateStatAttributes(player) {
     const faultPenalty = counts.fault * 4;
     const netRatio = totalActions > 0 ? (plusMinus / totalActions) : 0;
     disScore = Math.round(60 + (netRatio * 25) - faultPenalty);
+  } else if (matchesPlayed > 0) {
+    disScore = Math.round(65 + Math.min(10, matchesPlayed * 2) - (counts.fault * 4));
   }
   disScore = Math.min(99, Math.max(10, disScore));
 
@@ -126,6 +152,13 @@ export function calculateStatAttributes(player) {
 
   // Título e Selos de Destaque por mérito estatístico
   const badges = [];
+
+  if (isSetter && teamAttackPoints >= 5 && counts.setting_error <= 1) {
+    badges.push({ label: 'Regente do Ataque', color: '#3B82F6', desc: `${teamAttackPoints} pts de ataque gerados` });
+  }
+  if (isLibero && matchesPlayed >= 1 && counts.reception_error === 0) {
+    badges.push({ label: 'Guardião do Passe', color: '#10B981', desc: `${matchesPlayed} jogos sem erros de recepção` });
+  }
   if (counts.attack_point >= 5 && attackEfficiency >= 30) {
     badges.push({ label: 'Artilheiro Eficaz', color: '#EF4444', desc: `${counts.attack_point} pts de ataque` });
   }
@@ -135,14 +168,15 @@ export function calculateStatAttributes(player) {
   if (counts.block_point >= 3) {
     badges.push({ label: 'Muralha Defensiva', color: '#10B981', desc: `${counts.block_point} blocks convertidos` });
   }
-  if (totalActions >= 10 && counts.reception_error === 0) {
+  if ((totalActions >= 10 || (isLibero && matchesPlayed >= 1)) && counts.reception_error === 0) {
     badges.push({ label: 'Recepção Blindada', color: '#3B82F6', desc: '0 erros de recepção' });
   }
   if (plusMinus >= 5) {
     badges.push({ label: 'Impacto Líquido +', color: '#8B5CF6', desc: `+${plusMinus} saldo de pontos` });
   }
   if (badges.length === 0) {
-    badges.push({ label: 'Em Atividade', color: '#94A3B8', desc: `${totalActions} ações registradas` });
+    const actLabel = matchesPlayed > 0 ? `${matchesPlayed} jogos em quadra` : `${totalActions} ações registradas`;
+    badges.push({ label: 'Em Atividade', color: '#94A3B8', desc: actLabel });
   }
 
   // Tier do Atleta
@@ -154,19 +188,32 @@ export function calculateStatAttributes(player) {
   else if (ovr >= 60) { tierName = 'Regular'; tierColor = '#F59E0B'; }
   else { tierName = 'Em Evolução'; tierColor = '#EF4444'; }
 
+  // Meta descritiva para a visualização dos cards
+  const levMetaDesc = isSetter && teamAttackPoints > 0
+    ? `${teamAttackPoints} ataques gerados pela equipe · ${counts.setting_error} erros`
+    : `${counts.setting_error} erros de levantamento`;
+
+  const defMetaDesc = isLibero && matchesPlayed > 0
+    ? `${matchesPlayed} jogos escalados · ${counts.reception_error} erros de passe`
+    : `${counts.reception_error} erros de recepção`;
+
   return {
     hasGameData,
     totalActions,
     pointsMade,
     errors,
     plusMinus,
+    matchesPlayed,
+    teamAttackPoints,
+    teamAttackErrors,
+    teamPointsTotal,
     counts,
     attributes: [
       { key: 'ATQ', label: 'Ataque', val: attackScore, abbr: 'ATQ', points: counts.attack_point, err: counts.attack_error, eff: attackEfficiency },
       { key: 'SAQ', label: 'Saque', val: serveScore, abbr: 'SAQ', points: counts.serve_ace, err: counts.serve_error, eff: serveEfficiency },
       { key: 'BLO', label: 'Bloqueio', val: blockScore, abbr: 'BLO', points: counts.block_point, err: counts.block_error, eff: blockEfficiency },
-      { key: 'DEF', label: 'Recepção / Defesa', val: defScore, abbr: 'DEF', points: 0, err: counts.reception_error },
-      { key: 'LEV', label: 'Levantamento', val: levScore, abbr: 'LEV', points: 0, err: counts.setting_error },
+      { key: 'DEF', label: 'Recepção / Defesa', val: defScore, abbr: 'DEF', points: 0, err: counts.reception_error, customMeta: defMetaDesc },
+      { key: 'LEV', label: 'Levantamento', val: levScore, abbr: 'LEV', points: 0, err: counts.setting_error, customMeta: levMetaDesc },
       { key: 'DIS', label: 'Disciplina & Saldo', val: disScore, abbr: 'DIS', points: plusMinus, err: counts.fault },
     ],
     ovr,

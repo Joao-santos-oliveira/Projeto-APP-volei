@@ -65,12 +65,68 @@ ensureInit();
 
 const KEYS = ['attack','serve','reception','block','defense','setting','communication','consistency','versatility'];
 
+// Helper: calcula estatísticas de jogo e scout de equipe do jogador em modo local
+function computeLocalPlayerGameStats(playerId, allPoints = [], matches = []) {
+  const numId = parseInt(playerId);
+  const playerPoints = allPoints.filter(pt => pt.player_id === numId);
+
+  const byActionMap = {};
+  playerPoints.forEach(pt => {
+    const key = `${pt.action}_${pt.team}`;
+    if (!byActionMap[key]) {
+      byActionMap[key] = { action: pt.action, team: pt.team, count: 0 };
+    }
+    byActionMap[key].count++;
+  });
+
+  const pointsMade = playerPoints.filter(pt =>
+    ['attack_point', 'serve_ace', 'block_point', 'opponent_error'].includes(pt.action)
+  ).length;
+
+  const errors = playerPoints.filter(pt => pt.action && pt.action.endsWith('_error')).length;
+
+  // Contexto de time nas partidas em que o atleta esteve escalado
+  const playerMatches = matches.filter(m =>
+    (m.home_player_ids || []).includes(numId) || (m.away_player_ids || []).includes(numId)
+  );
+  const matchesPlayed = playerMatches.length;
+
+  let teamAttackPoints = 0;
+  let teamAttackErrors = 0;
+  let teamPointsTotal = 0;
+
+  playerMatches.forEach(m => {
+    const team = (m.home_player_ids || []).includes(numId) ? 'home' : 'away';
+    const mPoints = allPoints.filter(pt => pt.match_id === m.id);
+    mPoints.forEach(pt => {
+      if (pt.team === team) {
+        teamPointsTotal++;
+        if (pt.action === 'attack_point') teamAttackPoints++;
+        if (pt.action === 'attack_error') teamAttackErrors++;
+      }
+    });
+  });
+
+  return {
+    total_actions: playerPoints.length,
+    points_made: pointsMade,
+    errors: errors,
+    by_action: Object.values(byActionMap),
+    matches_played: matchesPlayed,
+    team_attack_points: teamAttackPoints,
+    team_attack_errors: teamAttackErrors,
+    team_points_total: teamPointsTotal
+  };
+}
+
 export const localStore = {
   // ── JOGADORES ──────────────────────────────
   async getPlayers() {
     ensureInit();
     const players = getStored(STORAGE_KEYS.PLAYERS, []);
     const ratings = getStored(STORAGE_KEYS.RATINGS, []);
+    const allPoints = getStored(STORAGE_KEYS.POINTS, []);
+    const matches = getStored(STORAGE_KEYS.MATCHES, []);
     const user = this._getCurrentUser();
 
     return players.map(p => {
@@ -85,13 +141,15 @@ export const localStore = {
       }
 
       const myRating = user ? pRatings.find(r => r.user_id === user.id) || null : null;
+      const gameStats = computeLocalPlayerGameStats(p.id, allPoints, matches);
 
       return {
         ...p,
         secondary_positions: p.secondary_positions || [],
         attributes: avgAttrs,
         rating_count: pRatings.length,
-        my_rating: myRating
+        my_rating: myRating,
+        game_stats: gameStats
       };
     });
   },
@@ -107,6 +165,8 @@ export const localStore = {
     const pRatings = ratings.filter(r => r.player_id === numId);
     const user = this._getCurrentUser();
     const users = getStored('volei_users', []);
+    const allPoints = getStored(STORAGE_KEYS.POINTS, []);
+    const matches = getStored(STORAGE_KEYS.MATCHES, []);
 
     let avgAttrs = {};
     if (pRatings.length > 0) {
@@ -133,23 +193,7 @@ export const localStore = {
       .slice().reverse();
 
     const history = getStored(STORAGE_KEYS.ATTR_HISTORY, []).filter(h => h.player_id === numId);
-    const points = getStored(STORAGE_KEYS.POINTS, []).filter(pt => pt.player_id === numId);
-
-    // Contagem de ações
-    const byActionMap = {};
-    points.forEach(pt => {
-      const key = `${pt.action}_${pt.team}`;
-      if (!byActionMap[key]) {
-        byActionMap[key] = { action: pt.action, team: pt.team, count: 0 };
-      }
-      byActionMap[key].count++;
-    });
-
-    const pointsMade = points.filter(pt =>
-      ['attack_point', 'serve_ace', 'block_point', 'opponent_error'].includes(pt.action)
-    ).length;
-
-    const errors = points.filter(pt => pt.action && pt.action.endsWith('_error')).length;
+    const gameStats = computeLocalPlayerGameStats(numId, allPoints, matches);
 
     return {
       ...p,
@@ -160,12 +204,7 @@ export const localStore = {
       all_ratings: allRatings,
       observations: observations,
       attribute_history: history,
-      game_stats: {
-        total_actions: points.length,
-        points_made: pointsMade,
-        errors: errors,
-        by_action: Object.values(byActionMap)
-      }
+      game_stats: gameStats
     };
   },
 
