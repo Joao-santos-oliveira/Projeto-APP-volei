@@ -7,7 +7,7 @@ import {
   positionBadgeClass, getPlayerProficiencies
 } from '../utils/constants';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Shuffle, BarChart2, Users, Trophy, Activity, Award, ChevronRight, Filter, Shield } from 'lucide-react';
+import { Shuffle, BarChart2, Users, Trophy, Activity, Award, ChevronRight, Filter, Shield, Check, CheckSquare, Square, Play } from 'lucide-react';
 import PositionProficiencyBadge from '../components/players/PositionProficiencyBadge';
 
 const BAR_COLORS = ['#F5B738', '#3B82F6', '#10B981', '#F97316', '#8B5CF6', '#EC4899', '#06B6D4'];
@@ -17,6 +17,7 @@ export default function DashboardPage() {
   const [teams, setTeams] = useState([]);
   const [matches, setMatches] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState('');
+  const [selectedDraftPlayerIds, setSelectedDraftPlayerIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [suggestedTeams, setSuggestedTeams] = useState(null);
   const navigate = useNavigate();
@@ -24,7 +25,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     Promise.all([api.getPlayers(), api.getTeams(), api.getMatches()])
-      .then(([p, t, m]) => { setPlayers(p); setTeams(t); setMatches(m); })
+      .then(([p, t, m]) => {
+        setPlayers(p);
+        setTeams(t);
+        setMatches(m);
+        setSelectedDraftPlayerIds(p.map(x => x.id));
+      })
       .catch(() => toast('Erro ao carregar dados de estatísticas', 'error'))
       .finally(() => setLoading(false));
   }, []);
@@ -40,29 +46,114 @@ export default function DashboardPage() {
 
   const currentTeamObj = teams.find(t => t.id === parseInt(selectedTeamId));
 
-  // Algoritmo Snake Draft para balanceamento
+  // Sincroniza seleção do draft quando o filtro de time muda
+  useEffect(() => {
+    setSelectedDraftPlayerIds(filteredPlayers.map(p => p.id));
+    setSuggestedTeams(null);
+  }, [selectedTeamId, players]);
+
+  const toggleDraftPlayer = (id) => {
+    setSelectedDraftPlayerIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllDraft = () => {
+    setSelectedDraftPlayerIds(filteredPlayers.map(p => p.id));
+  };
+
+  const clearAllDraft = () => {
+    setSelectedDraftPlayerIds([]);
+  };
+
+  // ── Algoritmo de Balanceamento Posicional & Técnico ──
   const suggestTeams = () => {
-    if (filteredPlayers.length < 2) {
-      toast('Selecione uma equipe com ao menos 2 atletas para gerar escalações balanceadas', 'info');
+    const availablePlayers = filteredPlayers.filter(p => selectedDraftPlayerIds.includes(p.id));
+
+    if (availablePlayers.length < 2) {
+      toast('Selecione ao menos 2 atletas disponíveis para gerar o sorteio balanceado', 'warning');
       return;
     }
 
-    const scored = filteredPlayers.map(p => ({
+    // Posições-chave em ordem tática do voleibol
+    const POSITION_ORDER = ['Levantador', 'Líbero', 'Central', 'Ponteiro', 'Oposto'];
+    
+    // Calcula score geral de cada atleta
+    const playersWithScore = availablePlayers.map(p => ({
       ...p,
-      score: [...TECHNICAL_ATTRS, ...COMPLEMENTARY_ATTRS].reduce((sum, { key }) => sum + (p.attributes?.[key] ?? 5), 0)
-    })).sort((a, b) => b.score - a.score);
+      score: [...TECHNICAL_ATTRS, ...COMPLEMENTARY_ATTRS].reduce(
+        (sum, { key }) => sum + (p.attributes?.[key] ?? 5), 0
+      ),
+      techAvg: parseFloat(avgTechnical(p.attributes)) || 5
+    }));
 
-    const teamA = [], teamB = [];
-    scored.forEach((p, i) => {
-      const round = Math.floor(i / 2);
-      const isEven = round % 2 === 0;
-      const posInRound = i % 2;
-      if (isEven ? posInRound === 0 : posInRound === 1) teamA.push(p);
-      else teamB.push(p);
+    // Agrupa por posição primária
+    const byPosition = {};
+    POSITION_ORDER.forEach(pos => { byPosition[pos] = []; });
+    byPosition['Outros'] = [];
+
+    playersWithScore.forEach(p => {
+      if (byPosition[p.primary_position]) {
+        byPosition[p.primary_position].push(p);
+      } else {
+        byPosition['Outros'].push(p);
+      }
     });
 
+    // Ordena cada grupo de posição por habilidade técnica (maior para menor)
+    Object.keys(byPosition).forEach(pos => {
+      byPosition[pos].sort((a, b) => b.score - a.score);
+    });
+
+    const teamA = [];
+    const teamB = [];
+
+    const getTeamTotal = (team) => team.reduce((s, p) => s + p.score, 0);
+
+    // 1. Distribuição posicional balanceada (Snake Draft dentro de cada posição)
+    POSITION_ORDER.forEach(pos => {
+      const posPlayers = byPosition[pos];
+      posPlayers.forEach((p, index) => {
+        if (teamA.length < teamB.length) {
+          teamA.push(p);
+        } else if (teamB.length < teamA.length) {
+          teamB.push(p);
+        } else {
+          // Empate em quantidade de jogadores: dá para o time com menor score acumulado
+          if (getTeamTotal(teamA) <= getTeamTotal(teamB)) {
+            teamA.push(p);
+          } else {
+            teamB.push(p);
+          }
+        }
+      });
+    });
+
+    // 2. Distribui os atletas restantes (Outros) de forma equilibrada
+    byPosition['Outros'].forEach(p => {
+      if (teamA.length < teamB.length) {
+        teamA.push(p);
+      } else if (teamB.length < teamA.length) {
+        teamB.push(p);
+      } else {
+        if (getTeamTotal(teamA) <= getTeamTotal(teamB)) {
+          teamA.push(p);
+        } else {
+          teamB.push(p);
+        }
+      }
+    });
+
+    // 3. Ajuste fino de quantidade
+    while (teamA.length - teamB.length > 1) {
+      teamB.push(teamA.pop());
+    }
+    while (teamB.length - teamA.length > 1) {
+      teamA.push(teamB.pop());
+    }
+
     setSuggestedTeams({ teamA, teamB });
-    toast('Equipes equilibradas geradas com sucesso', 'success');
+    toast(`Equipes geradas e balanceadas por posições (${availablePlayers.length} atletas)`, 'success');
   };
 
   const teamAvgData = filteredPlayers.map(p => ({
@@ -207,87 +298,169 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* ── Balanceamento Tático (Snake Draft) ── */}
+      {/* ── Balanceamento Tático & Sorteio de Equipes ── */}
       <div className="geo-panel">
         <div className="geo-panel-header">
           <div>
             <div className="geo-eyebrow">INTELIGÊNCIA DE ESCALAÇÃO</div>
-            <h3 className="geo-panel-title">GERADOR DE TIMES EQUILIBRADOS</h3>
+            <h3 className="geo-panel-title">SORTEIO & GERADOR DE TIMES EQUILIBRADOS</h3>
             <p className="geo-panel-subtitle">
-              Distribuição por algoritmo Snake Draft ponderando todas as notas técnicas {currentTeamObj ? `de ${currentTeamObj.name}` : 'do elenco'}
+              Distribuição tática garantindo cobertura de posições (Levantador, Líbero, Central, Ponteiro, Oposto) e equilíbrio técnico
             </p>
           </div>
 
-          <button className="btn btn-gold" onClick={suggestTeams}>
-            <Shuffle size={14} /> GERAR ESCALAÇÃO EQUILIBRADA
+          <button className="btn btn-gold" onClick={suggestTeams} disabled={selectedDraftPlayerIds.length < 2}>
+            <Shuffle size={14} /> SORTEAR & EQUILIBRAR ({selectedDraftPlayerIds.length} ATLETAS)
           </button>
         </div>
 
-        {suggestedTeams ? (
-          <div className="geo-suggested-teams-grid">
-            {/* Time A */}
-            <div className="geo-suggested-team-card" style={{ borderLeftColor: 'var(--team-blue)' }}>
-              <div className="geo-suggested-team-header">
-                <span className="team-badge" style={{ background: 'rgba(37, 99, 235, 0.15)', color: '#60A5FA', borderColor: 'rgba(37, 99, 235, 0.4)' }}>
-                  EQUIPE MANDANTE (A)
-                </span>
-                <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 12, fontWeight: 900, color: 'var(--gold)' }}>
-                  MÉD: {(suggestedTeams.teamA.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / (suggestedTeams.teamA.length || 1)).toFixed(1)}
-                </span>
-              </div>
+        {/* ── Seletor de Atletas Disponíveis para o Sorteio ── */}
+        <div className="geo-draft-pool-section">
+          <div className="geo-draft-pool-header">
+            <div className="geo-draft-pool-title-group">
+              <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 12, fontWeight: 900, color: '#FFFFFF', letterSpacing: '0.05em' }}>
+                ATLETAS DISPONÍVEIS NO TREINO / JOGO:
+              </span>
+              <span className="geo-admin-chip" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA', borderColor: 'rgba(59, 130, 246, 0.3)' }}>
+                {selectedDraftPlayerIds.length} / {filteredPlayers.length} PRESENTES
+              </span>
+            </div>
 
-              <div className="geo-suggested-team-roster">
-                {suggestedTeams.teamA.map(p => (
-                  <div key={p.id} className="geo-suggested-player-row" onClick={() => navigate(`/players/${p.id}`)}>
-                    <div className="player-avatar-mini">
+            <div className="geo-draft-pool-actions">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: 10, padding: '4px 10px' }}
+                onClick={selectAllDraft}
+              >
+                <CheckSquare size={12} /> SELECIONAR TODOS
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 10, padding: '4px 10px' }}
+                onClick={clearAllDraft}
+              >
+                <Square size={12} /> LIMPAR
+              </button>
+            </div>
+          </div>
+
+          {filteredPlayers.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '16px 0', fontSize: 12, color: 'var(--text-muted)' }}>
+              Nenhum atleta encontrado nesta equipe.
+            </div>
+          ) : (
+            <div className="geo-draft-pool-grid">
+              {filteredPlayers.map(p => {
+                const isSelected = selectedDraftPlayerIds.includes(p.id);
+                return (
+                  <div
+                    key={p.id}
+                    className={`geo-draft-athlete-card ${isSelected ? 'is-selected' : ''}`}
+                    onClick={() => toggleDraftPlayer(p.id)}
+                  >
+                    <div className="geo-draft-check-badge">
+                      {isSelected ? <Check size={10} strokeWidth={3} /> : null}
+                    </div>
+                    <div className="geo-draft-card-avatar">
                       {p.photo ? <img src={p.photo} alt={p.name} /> : getInitials(p.name)}
                     </div>
-                    <div className="player-meta-mini">
-                      <span className="player-name-text">{p.name}</span>
-                      <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{p.primary_position}</span>
-                    </div>
-                    <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 11, fontWeight: 900, color: 'var(--gold)' }}>
-                      {avgTechnical(p.attributes)}
+                    <span className="geo-draft-card-name">
+                      {p.nickname || p.name.split(' ')[0]}
                     </span>
+                    <div className="geo-draft-card-meta">
+                      <span className={positionBadgeClass(p.primary_position)} style={{ fontSize: 8, padding: '1px 5px' }}>
+                        {p.primary_position}
+                      </span>
+                    </div>
                   </div>
-                ))}
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {suggestedTeams ? (
+          <div>
+            <div className="geo-suggested-teams-grid">
+              {/* Time A */}
+              <div className="geo-suggested-team-card" style={{ borderLeftColor: 'var(--team-blue)' }}>
+                <div className="geo-suggested-team-header">
+                  <span className="team-badge" style={{ background: 'rgba(37, 99, 235, 0.15)', color: '#60A5FA', borderColor: 'rgba(37, 99, 235, 0.4)' }}>
+                    EQUIPE AZUL (A) · {suggestedTeams.teamA.length} ATLETAS
+                  </span>
+                  <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 12, fontWeight: 900, color: 'var(--gold)' }}>
+                    MÉD: {(suggestedTeams.teamA.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / (suggestedTeams.teamA.length || 1)).toFixed(1)}
+                  </span>
+                </div>
+
+                <div className="geo-suggested-team-roster">
+                  {suggestedTeams.teamA.map(p => (
+                    <div key={p.id} className="geo-suggested-player-row" onClick={() => navigate(`/players/${p.id}`)}>
+                      <div className="player-avatar-mini">
+                        {p.photo ? <img src={p.photo} alt={p.name} /> : getInitials(p.name)}
+                      </div>
+                      <div className="player-meta-mini">
+                        <span className="player-name-text">{p.name}</span>
+                        <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{p.primary_position}</span>
+                      </div>
+                      <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 11, fontWeight: 900, color: 'var(--gold)' }}>
+                        {avgTechnical(p.attributes)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Time B */}
+              <div className="geo-suggested-team-card" style={{ borderLeftColor: 'var(--team-red)' }}>
+                <div className="geo-suggested-team-header">
+                  <span className="team-badge" style={{ background: 'rgba(220, 38, 38, 0.15)', color: '#F87171', borderColor: 'rgba(220, 38, 38, 0.4)' }}>
+                    EQUIPE VERMELHA (B) · {suggestedTeams.teamB.length} ATLETAS
+                  </span>
+                  <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 12, fontWeight: 900, color: 'var(--gold)' }}>
+                    MÉD: {(suggestedTeams.teamB.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / (suggestedTeams.teamB.length || 1)).toFixed(1)}
+                  </span>
+                </div>
+
+                <div className="geo-suggested-team-roster">
+                  {suggestedTeams.teamB.map(p => (
+                    <div key={p.id} className="geo-suggested-player-row" onClick={() => navigate(`/players/${p.id}`)}>
+                      <div className="player-avatar-mini">
+                        {p.photo ? <img src={p.photo} alt={p.name} /> : getInitials(p.name)}
+                      </div>
+                      <div className="player-meta-mini">
+                        <span className="player-name-text">{p.name}</span>
+                        <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{p.primary_position}</span>
+                      </div>
+                      <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 11, fontWeight: 900, color: 'var(--gold)' }}>
+                        {avgTechnical(p.attributes)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
-            {/* Time B */}
-            <div className="geo-suggested-team-card" style={{ borderLeftColor: 'var(--team-red)' }}>
-              <div className="geo-suggested-team-header">
-                <span className="team-badge" style={{ background: 'rgba(220, 38, 38, 0.15)', color: '#F87171', borderColor: 'rgba(220, 38, 38, 0.4)' }}>
-                  EQUIPE VISITANTE (B)
-                </span>
-                <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 12, fontWeight: 900, color: 'var(--gold)' }}>
-                  MÉD: {(suggestedTeams.teamB.reduce((s, p) => s + parseFloat(avgTechnical(p.attributes)), 0) / (suggestedTeams.teamB.length || 1)).toFixed(1)}
-                </span>
-              </div>
-
-              <div className="geo-suggested-team-roster">
-                {suggestedTeams.teamB.map(p => (
-                  <div key={p.id} className="geo-suggested-player-row" onClick={() => navigate(`/players/${p.id}`)}>
-                    <div className="player-avatar-mini">
-                      {p.photo ? <img src={p.photo} alt={p.name} /> : getInitials(p.name)}
-                    </div>
-                    <div className="player-meta-mini">
-                      <span className="player-name-text">{p.name}</span>
-                      <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{p.primary_position}</span>
-                    </div>
-                    <span style={{ fontFamily: 'Space Grotesk, monospace', fontSize: 11, fontWeight: 900, color: 'var(--gold)' }}>
-                      {avgTechnical(p.attributes)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+              <button
+                className="btn btn-gold"
+                onClick={() => navigate('/matches', {
+                  state: {
+                    preselectedPlayers: suggestedTeams.teamA.map(p => p.id)
+                  }
+                })}
+              >
+                <Play size={14} /> INICIAR PARTIDA COM ESTA FORMAÇÃO
+              </button>
             </div>
           </div>
         ) : (
           <div className="geo-empty-panel">
             <Shuffle size={32} className="geo-empty-icon" />
-            <div className="geo-empty-title">NENHUMA ESCALAÇÃO GERADA</div>
-            <div className="geo-empty-desc">Clique no botão acima para gerar duas equipes equilibradas instantaneamente.</div>
+            <div className="geo-empty-title">NENHUM SORTEIO GERADO</div>
+            <div className="geo-empty-desc">Selecione os atletas presentes acima e clique no botão dourado para gerar duas equipes equilibradas por posições.</div>
           </div>
         )}
       </div>
