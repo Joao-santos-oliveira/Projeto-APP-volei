@@ -59,6 +59,16 @@ async function request(method, path, body) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erro na requisição');
+
+    // Sincroniza mutações (POST, PUT, DELETE, PATCH) no armazenamento local do dispositivo
+    if (method !== 'GET') {
+      try {
+        await routeToLocalStore(method, path, body || data);
+      } catch (syncErr) {
+        console.warn('[API Sync] Falha ao sincronizar localmente:', syncErr);
+      }
+    }
+
     return data;
   } catch (err) {
     console.warn(`[API] Falha ao comunicar com backend (${path}), alternando para modo local...`, err);
@@ -129,7 +139,18 @@ async function routeToLocalStore(method, path, body) {
 
 export const api = {
   // Players
-  getPlayers:             ()               => request('GET',    '/players'),
+  getPlayers: async () => {
+    try {
+      const remote = await request('GET', '/players');
+      if (Array.isArray(remote)) {
+        localStorage.setItem('volei_app_players', JSON.stringify(remote));
+        return remote;
+      }
+    } catch (e) {
+      console.warn('[API] Erro ao buscar jogadores remotos, usando cache local:', e);
+    }
+    return localStore.getPlayers();
+  },
   getPlayer:              (id)             => request('GET',    `/players/${id}`),
   createPlayer:           (data)           => request('POST',   '/players', data),
   updatePlayer:           (id, data)       => request('PUT',    `/players/${id}`, data),
@@ -139,7 +160,18 @@ export const api = {
   deleteObservation:      (pid, obsId)     => request('DELETE', `/players/${pid}/observations/${obsId}`),
 
   // Matches
-  getMatches:             ()               => request('GET',    '/matches'),
+  getMatches: async () => {
+    try {
+      const remote = await request('GET', '/matches');
+      if (Array.isArray(remote)) {
+        localStorage.setItem('volei_app_matches', JSON.stringify(remote));
+        return remote;
+      }
+    } catch (e) {
+      console.warn('[API] Erro ao buscar partidas remotas, usando cache local:', e);
+    }
+    return localStore.getMatches();
+  },
   getMatch:               (id)             => request('GET',    `/matches/${id}`),
   createMatch:            (data)           => request('POST',   '/matches', data),
   addPoint:               (id, data)       => request('POST',   `/matches/${id}/point`, data),
@@ -148,7 +180,18 @@ export const api = {
   deleteMatch:            (id)             => request('DELETE', `/matches/${id}`),
 
   // Teams
-  getTeams:               ()               => request('GET',    '/teams'),
+  getTeams: async () => {
+    try {
+      const remote = await request('GET', '/teams');
+      if (Array.isArray(remote)) {
+        localStorage.setItem('volei_app_teams', JSON.stringify(remote));
+        return remote;
+      }
+    } catch (e) {
+      console.warn('[API] Erro ao buscar equipes remotas, usando cache local:', e);
+    }
+    return localStore.getTeams();
+  },
   getTeam:                (id)             => request('GET',    `/teams/${id}`),
   createTeam:             (data)           => request('POST',   '/teams', data),
   updateTeam:             (id, data)       => request('PUT',    `/teams/${id}`, data),
