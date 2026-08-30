@@ -641,5 +641,40 @@ export const localStore = {
     observations = observations.filter(o => o.id !== numOId);
     setStored(STORAGE_KEYS.OBSERVATIONS, observations);
     return { observations: observations.filter(o => o.player_id === numPId).reverse() };
+  },
+
+  // ── GESTÃO DE USUÁRIOS (ADMIN) ───────────────────
+  async getUsers() {
+    return getStored('volei_users', []);
+  },
+
+  async deleteUser(userId) {
+    const numId = parseInt(userId);
+    let users = getStored('volei_users', []);
+    const target = users.find(u => u.id === numId);
+    if (target?.username?.toLowerCase() === 'admin') {
+      throw new Error('Não é permitido excluir o administrador principal');
+    }
+    users = users.filter(u => u.id !== numId);
+    setStored('volei_users', users);
+    return { message: 'Usuário removido com sucesso' };
+  },
+
+  async wipeUsers() {
+    let users = getStored('volei_users', []);
+    users = users.filter(u => u.username?.toLowerCase() === 'admin');
+    if (users.length === 0) {
+      users = [{
+        id: 1,
+        username: 'admin',
+        display_name: 'Admin',
+        password: 'admin123',
+        avatar_color: '#f5c518',
+        is_admin: 1,
+        created_at: NOW()
+      }];
+    }
+    setStored('volei_users', users);
+    return { message: 'Todos os usuários extras foram removidos' };
   }
 };

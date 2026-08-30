@@ -118,6 +118,12 @@ async function routeToLocalStore(method, path, body) {
   const obsDeleteMatch = path.match(/^\/players\/(\d+)\/observations\/(\d+)$/);
   if (obsDeleteMatch && method === 'DELETE') return localStore.deleteObservation(obsDeleteMatch[1], obsDeleteMatch[2]);
 
+  // Users Management (Admin)
+  if (path === '/auth/users' && method === 'GET') return localStore.getUsers();
+  const userDeleteMatch = path.match(/^\/auth\/users\/(\d+)$/);
+  if (userDeleteMatch && method === 'DELETE') return localStore.deleteUser(userDeleteMatch[1]);
+  if (path === '/auth/wipe-users' && method === 'POST') return localStore.wipeUsers();
+
   throw new Error(`Rota localStore não implementada: ${method} ${path}`);
 }
 
@@ -149,6 +155,11 @@ export const api = {
   deleteTeam:             (id)             => request('DELETE', `/teams/${id}`),
   addPlayerToTeam:        (id, player_id)  => request('POST',   `/teams/${id}/players`, { player_id }),
   removePlayerFromTeam:   (id, player_id)  => request('DELETE', `/teams/${id}/players/${player_id}`),
+
+  // Users Management (Admin)
+  getUsers:               ()               => request('GET',    '/auth/users'),
+  deleteUser:             (id)             => request('DELETE', `/auth/users/${id}`),
+  wipeUsers:              ()               => request('POST',   '/auth/wipe-users'),
 
   // Utilitário
   isOfflineMode: () => isBackendAvailable === false,

@@ -1,11 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Users, Trophy, Activity, BarChart2, GitCompare,
-  Menu, X, UsersRound, LogOut, Shield
+  Menu, X, UsersRound, LogOut, Shield, UserCheck
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import Logo from '../ui/Logo';
+import UserManagerModal from '../modals/UserManagerModal';
 
 const NAV_ITEMS = [
   { to: '/',          icon: Users,       label: 'ATLETAS',    mobileLabel: 'ATLETAS' },
@@ -18,11 +19,16 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [userManagerOpen, setUserManagerOpen] = useState(false);
   const { user, logout } = useAuth();
   const location = useLocation();
 
+  const isAdmin = user?.is_admin === 1 || user?.username?.toLowerCase() === 'admin';
+
   return (
     <>
+      <UserManagerModal isOpen={userManagerOpen} onClose={() => setUserManagerOpen(false)} />
+
       {/* ── Mobile Top Header Bar ── */}
       <header className="geo-mobile-header">
         <Logo size={24} showText={true} />
@@ -58,9 +64,9 @@ export default function Sidebar() {
       {/* ── Mobile Drawer ── */}
       <div className={`geo-mobile-drawer ${mobileDrawerOpen ? 'is-open' : ''}`}>
         <div className="geo-drawer-header">
-          <div className="geo-drawer-profile">
+          <div className="geo-drawer-user">
             <div
-              className="geo-drawer-avatar"
+              className="geo-user-dot"
               style={{
                 backgroundColor: `${user?.avatar_color || '#E5A93C'}30`,
                 borderColor: user?.avatar_color || '#E5A93C',
@@ -72,7 +78,7 @@ export default function Sidebar() {
             <div className="geo-drawer-user-info">
               <span className="geo-drawer-name">{user?.display_name}</span>
               <span className="geo-drawer-role">
-                @{user?.username} {user?.is_admin === 1 && '· ADMIN'}
+                @{user?.username} {isAdmin && '· ADMIN'}
               </span>
             </div>
           </div>
@@ -95,6 +101,23 @@ export default function Sidebar() {
               <span>{label}</span>
             </NavLink>
           ))}
+
+          {isAdmin && (
+            <>
+              <div className="geo-drawer-section" style={{ marginTop: '16px' }}>ADMINISTRAÇÃO</div>
+              <button
+                className="geo-drawer-link"
+                style={{ width: '100%', justifyContent: 'flex-start', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                onClick={() => {
+                  setMobileDrawerOpen(false);
+                  setUserManagerOpen(true);
+                }}
+              >
+                <UserCheck size={16} className="text-gold" />
+                <span>GERENCIAR USUÁRIOS</span>
+              </button>
+            </>
+          )}
         </nav>
 
         <div className="geo-drawer-footer">
@@ -125,12 +148,31 @@ export default function Sidebar() {
               <span className="geo-link-text">{label}</span>
             </NavLink>
           ))}
+
+          {isAdmin && (
+            <>
+              <div className="geo-nav-heading" style={{ marginTop: '20px' }}>ADMINISTRAÇÃO</div>
+              <button
+                className="geo-sidebar-link"
+                style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}
+                onClick={() => setUserManagerOpen(true)}
+              >
+                <UserCheck size={16} className="geo-link-icon text-gold" />
+                <span className="geo-link-text">USUÁRIOS</span>
+              </button>
+            </>
+          )}
         </nav>
 
         {/* User Card Footer */}
         {user && (
           <div className="geo-sidebar-user-block">
-            <div className="geo-user-profile-row">
+            <div
+              className="geo-user-profile-row"
+              onClick={() => isAdmin && setUserManagerOpen(true)}
+              style={{ cursor: isAdmin ? 'pointer' : 'default' }}
+              title={isAdmin ? 'Clique para gerenciar usuários' : ''}
+            >
               <div
                 className="geo-sidebar-avatar"
                 style={{
@@ -144,7 +186,7 @@ export default function Sidebar() {
               <div className="geo-user-text-col">
                 <span className="geo-user-fullname">{user.display_name}</span>
                 <span className="geo-user-role-tag">
-                  {user.is_admin === 1 ? 'COMISSÃO TÉCNICA' : 'SCOUT / ATLETA'}
+                  {isAdmin ? 'COMISSÃO TÉCNICA' : 'SCOUT / ATLETA'}
                 </span>
               </div>
             </div>

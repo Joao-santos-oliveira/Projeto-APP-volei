@@ -119,27 +119,45 @@ router.post('/reset-password', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// POST /api/auth/wipe-all
+// GET /api/auth/users
 // ─────────────────────────────────────────────
-router.post('/wipe-all', (req, res) => {
+router.get('/users', (req, res) => {
+  try {
+    const { query } = getDb();
+    const users = query('SELECT id, username, display_name, avatar_color, is_admin, created_at FROM users ORDER BY created_at ASC');
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// DELETE /api/auth/users/:id
+// ─────────────────────────────────────────────
+router.delete('/users/:id', (req, res) => {
+  try {
+    const { run, queryOne } = getDb();
+    const user = queryOne('SELECT * FROM users WHERE id = ?', [req.params.id]);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (user.username.toLowerCase() === 'admin') {
+      return res.status(400).json({ error: 'Não é permitido excluir o administrador principal' });
+    }
+
+    run('DELETE FROM users WHERE id = ?', [req.params.id]);
+    res.json({ success: true, message: 'Usuário removido com sucesso' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/auth/wipe-users
+// ─────────────────────────────────────────────
+router.post('/wipe-users', (req, res) => {
   try {
     const { run } = getDb();
-    run('DELETE FROM points');
-    run('DELETE FROM sets');
-    run('DELETE FROM matches');
-    run('DELETE FROM team_players');
-    run('DELETE FROM teams');
-    run('DELETE FROM player_observations');
-    run('DELETE FROM player_ratings');
-    run('DELETE FROM player_attributes');
-    run('DELETE FROM players');
     run("DELETE FROM users WHERE LOWER(username) != 'admin'");
-    
-    // Garante que a senha do admin continue sendo admin123
-    const hash = bcrypt.hashSync('admin123', 10);
-    run("UPDATE users SET password_hash = ? WHERE LOWER(username) = 'admin'", [hash]);
-
-    res.json({ success: true, message: 'Todos os usuários extras, jogadores, times e partidas foram apagados com sucesso.' });
+    res.json({ success: true, message: 'Todos os usuários extras foram excluídos com sucesso' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
