@@ -179,12 +179,13 @@ function ObservationsSection({ playerId, observations: initialObs, onUpdate }) {
     setSending(true);
     try {
       const res = await api.addObservation(playerId, text.trim());
-      setObs(res.observations);
+      const updatedList = res.observations || (Array.isArray(res) ? res : []);
+      setObs(updatedList);
       setText('');
-      onUpdate?.(res.observations);
+      onUpdate?.(updatedList);
       toast('Observação registrada no relatório técnico', 'success');
     } catch (err) {
-      toast(err.message, 'error');
+      toast(err.message || 'Erro ao registrar observação', 'error');
     } finally {
       setSending(false);
     }
@@ -193,11 +194,12 @@ function ObservationsSection({ playerId, observations: initialObs, onUpdate }) {
   const handleDelete = async (obsId) => {
     try {
       const res = await api.deleteObservation(playerId, obsId);
-      setObs(res.observations);
-      onUpdate?.(res.observations);
+      const updatedList = res.observations || (Array.isArray(res) ? res : []);
+      setObs(updatedList);
+      onUpdate?.(updatedList);
       toast('Registro removido', 'info');
     } catch (err) {
-      toast(err.message, 'error');
+      toast(err.message || 'Erro ao remover observação', 'error');
     }
   };
 

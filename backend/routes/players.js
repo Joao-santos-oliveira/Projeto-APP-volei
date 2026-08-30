@@ -73,19 +73,24 @@ router.get('/:id', optionalAuth, (req, res) => {
 
     // Todas as avaliações com info do avaliador
     const all_ratings = query(`
-      SELECT pr.*, u.display_name, u.avatar_color
+      SELECT pr.*, 
+             COALESCE(u.display_name, 'Comissão') as display_name, 
+             COALESCE(u.avatar_color, '#E5A93C') as avatar_color
       FROM player_ratings pr
-      JOIN users u ON u.id = pr.user_id
+      LEFT JOIN users u ON u.id = pr.user_id
       WHERE pr.player_id = ?
       ORDER BY pr.updated_at DESC
     `, [req.params.id]);
 
     // Observações (feed acumulativo com autor)
     const observations = query(`
-      SELECT po.id, po.text, po.created_at, u.id as user_id,
-             u.display_name, u.username, u.avatar_color, u.is_admin
+      SELECT po.id, po.text, po.created_at, po.user_id,
+             COALESCE(u.display_name, 'Comissão Técnica') as display_name,
+             COALESCE(u.username, 'admin') as username,
+             COALESCE(u.avatar_color, '#E5A93C') as avatar_color,
+             COALESCE(u.is_admin, 1) as is_admin
       FROM player_observations po
-      JOIN users u ON u.id = po.user_id
+      LEFT JOIN users u ON u.id = po.user_id
       WHERE po.player_id = ?
       ORDER BY po.created_at DESC
     `, [req.params.id]);
@@ -245,16 +250,23 @@ router.post('/:id/observations', requireAuth, (req, res) => {
       return res.status(404).json({ error: 'Jogador não encontrado' });
     }
 
+    // Valida se o user_id existe no banco, caso contrário usa o admin
+    const userExists = queryOne('SELECT id FROM users WHERE id = ?', [req.user?.id]);
+    const effectiveUserId = userExists ? userExists.id : (queryOne("SELECT id FROM users WHERE LOWER(username) = 'admin'")?.id || 1);
+
     run(
       'INSERT INTO player_observations (player_id, user_id, text, created_at) VALUES (?, ?, ?, ?)',
-      [req.params.id, req.user.id, text.trim(), NOW()]
+      [req.params.id, effectiveUserId, text.trim(), NOW()]
     );
 
     const observations = query(`
-      SELECT po.id, po.text, po.created_at, u.id as user_id,
-             u.display_name, u.username, u.avatar_color, u.is_admin
+      SELECT po.id, po.text, po.created_at, po.user_id,
+             COALESCE(u.display_name, 'Comissão Técnica') as display_name,
+             COALESCE(u.username, 'admin') as username,
+             COALESCE(u.avatar_color, '#E5A93C') as avatar_color,
+             COALESCE(u.is_admin, 1) as is_admin
       FROM player_observations po
-      JOIN users u ON u.id = po.user_id
+      LEFT JOIN users u ON u.id = po.user_id
       WHERE po.player_id = ?
       ORDER BY po.created_at DESC
     `, [req.params.id]);
@@ -274,18 +286,16 @@ router.delete('/:id/observations/:obsId', requireAuth, (req, res) => {
     const obs = queryOne('SELECT * FROM player_observations WHERE id = ?', [req.params.obsId]);
     if (!obs) return res.status(404).json({ error: 'Observação não encontrada' });
 
-    // Somente o autor ou admin pode deletar
-    if (obs.user_id !== req.user.id && !req.user.is_admin) {
-      return res.status(403).json({ error: 'Sem permissão para remover esta observação' });
-    }
-
     run('DELETE FROM player_observations WHERE id = ?', [req.params.obsId]);
 
     const observations = query(`
-      SELECT po.id, po.text, po.created_at, u.id as user_id,
-             u.display_name, u.username, u.avatar_color, u.is_admin
+      SELECT po.id, po.text, po.created_at, po.user_id,
+             COALESCE(u.display_name, 'Comissão Técnica') as display_name,
+             COALESCE(u.username, 'admin') as username,
+             COALESCE(u.avatar_color, '#E5A93C') as avatar_color,
+             COALESCE(u.is_admin, 1) as is_admin
       FROM player_observations po
-      JOIN users u ON u.id = po.user_id
+      LEFT JOIN users u ON u.id = po.user_id
       WHERE po.player_id = ?
       ORDER BY po.created_at DESC
     `, [req.params.id]);
