@@ -15,225 +15,9 @@ const STORAGE_KEYS = {
 
 const NOW = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-// Seed mestre com todos os atletas cadastrados
-const INITIAL_PLAYERS = [
-  {
-    id: 1,
-    name: 'João Gabriel',
-    nickname: 'JG',
-    number: 1,
-    photo: null,
-    height: 181,
-    primary_position: 'Levantador',
-    secondary_positions: [],
-    notes: 'Excelente leitura de jogo. Levantamento preciso e rápido.',
-    created_at: '2026-08-28 23:50:43',
-    updated_at: '2026-08-28 23:50:43',
-    attributes: { attack: 9, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 2,
-    name: 'João Pedro',
-    nickname: 'JP',
-    number: 2,
-    photo: null,
-    height: 200,
-    primary_position: 'Central',
-    secondary_positions: ['Oposto'],
-    notes: 'Altura excepcional. Bloqueio muito forte.',
-    created_at: '2026-08-28 23:50:43',
-    updated_at: '2026-08-28 23:50:43',
-    attributes: { attack: 8, serve: 6, reception: 4, block: 9, defense: 4, setting: 3, communication: 7, consistency: 7, versatility: 6 }
-  },
-  {
-    id: 3,
-    name: 'Rafael',
-    nickname: 'Rafa',
-    number: 7,
-    photo: null,
-    height: 191,
-    primary_position: 'Ponteiro',
-    secondary_positions: [],
-    notes: 'Ponteiro principal. Potente no ataque.',
-    created_at: '2026-08-28 23:50:43',
-    updated_at: '2026-08-28 23:50:43',
-    attributes: { attack: 9, serve: 7, reception: 6, block: 7, defense: 6, setting: 4, communication: 7, consistency: 7, versatility: 6 }
-  },
-  {
-    id: 4,
-    name: 'Carlos',
-    nickname: 'Carlão',
-    number: 10,
-    photo: null,
-    height: 175,
-    primary_position: 'Ponteiro',
-    secondary_positions: [],
-    notes: 'Veloz e aguerrido. Bom saque flutuante.',
-    created_at: '2026-08-28 23:50:43',
-    updated_at: '2026-08-28 23:50:43',
-    attributes: { attack: 7, serve: 8, reception: 7, block: 5, defense: 8, setting: 4, communication: 8, consistency: 7, versatility: 7 }
-  },
-  {
-    id: 5,
-    name: 'Felipe',
-    nickname: 'Fê',
-    number: 5,
-    photo: null,
-    height: 175,
-    primary_position: 'Líbero',
-    secondary_positions: ['Ponteiro'],
-    notes: 'Líbero de excelente recepção. Comunicação impecável.',
-    created_at: '2026-08-28 23:50:43',
-    updated_at: '2026-08-28 23:50:43',
-    attributes: { attack: 4, serve: 5, reception: 9, block: 2, defense: 9, setting: 5, communication: 9, consistency: 9, versatility: 7 }
-  },
-  {
-    id: 6,
-    name: 'Richard',
-    nickname: 'Richard',
-    number: 13,
-    photo: null,
-    height: 183,
-    primary_position: 'Oposto',
-    secondary_positions: ['Central', 'Líbero'],
-    notes: '',
-    created_at: '2026-08-29 19:17:36',
-    updated_at: '2026-08-29 19:17:36',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 7,
-    name: 'Gabriel',
-    nickname: 'Gabriel',
-    number: null,
-    photo: null,
-    height: null,
-    primary_position: 'Ponteiro',
-    secondary_positions: ['Líbero', 'Oposto', 'Levantador'],
-    notes: '',
-    created_at: '2026-08-29 22:52:22',
-    updated_at: '2026-08-29 22:53:25',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 8,
-    name: 'Marcos',
-    nickname: 'Marcos',
-    number: null,
-    photo: null,
-    height: null,
-    primary_position: 'Levantador',
-    secondary_positions: ['Levantador'],
-    notes: '',
-    created_at: '2026-08-29 22:52:27',
-    updated_at: '2026-08-29 22:53:13',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 9,
-    name: 'Caio',
-    nickname: 'Caio',
-    number: null,
-    photo: null,
-    height: null,
-    primary_position: 'Ponteiro',
-    secondary_positions: ['Central'],
-    notes: '',
-    created_at: '2026-08-29 22:52:34',
-    updated_at: '2026-08-29 22:52:34',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 10,
-    name: 'Wudson',
-    nickname: 'Wudson',
-    number: null,
-    photo: null,
-    height: null,
-    primary_position: 'Ponteiro',
-    secondary_positions: [],
-    notes: '',
-    created_at: '2026-08-29 22:52:45',
-    updated_at: '2026-08-29 22:52:45',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 11,
-    name: 'Daniel',
-    nickname: 'Daniel',
-    number: null,
-    photo: null,
-    height: null,
-    primary_position: 'Líbero',
-    secondary_positions: ['Ponteiro'],
-    notes: '',
-    created_at: '2026-08-29 22:52:58',
-    updated_at: '2026-08-29 22:53:33',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 12,
-    name: 'Andre',
-    nickname: 'Andre',
-    number: null,
-    photo: null,
-    height: null,
-    primary_position: 'Ponteiro',
-    secondary_positions: [],
-    notes: '',
-    created_at: '2026-08-29 22:53:04',
-    updated_at: '2026-08-29 22:53:04',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  },
-  {
-    id: 13,
-    name: 'Miguel',
-    nickname: 'Miguel',
-    number: null,
-    photo: null,
-    height: null,
-    primary_position: 'Levantador',
-    secondary_positions: ['Levantador', 'Ponteiro'],
-    notes: '',
-    created_at: '2026-08-29 23:06:20',
-    updated_at: '2026-08-29 23:06:20',
-    attributes: { attack: 5, serve: 5, reception: 5, block: 5, defense: 5, setting: 5, communication: 5, consistency: 5, versatility: 5 }
-  }
-];
-
-// Seed mestre de equipes com vínculos de atletas
-const INITIAL_TEAMS = [
-  {
-    id: 1,
-    name: 'Boizão',
-    description: 'Equipe Principal Boizão',
-    color: '#f51919',
-    photo: null,
-    created_at: '2026-08-29 22:51:37',
-    updated_at: '2026-08-29 22:51:47',
-    player_ids: [4, 5, 1, 6, 3, 2]
-  },
-  {
-    id: 2,
-    name: 'UEMG',
-    description: 'Equipe Universitária UEMG',
-    color: '#f5c518',
-    photo: null,
-    created_at: '2026-08-29 22:51:59',
-    updated_at: '2026-08-29 22:54:00',
-    player_ids: [12, 9, 11, 7, 8, 10]
-  },
-  {
-    id: 3,
-    name: 'UFSJ',
-    description: 'Equipe Universitária UFSJ',
-    color: '#3b82f6',
-    photo: null,
-    created_at: '2026-08-29 23:06:03',
-    updated_at: '2026-08-29 23:06:28',
-    player_ids: [13]
-  }
-];
+// Base limpa inicial (sem atletas ou times pré-carregados)
+const INITIAL_PLAYERS = [];
+const INITIAL_TEAMS   = [];
 
 function getStored(key, fallback) {
   try {
@@ -252,51 +36,28 @@ function setStored(key, value) {
   }
 }
 
-// Inicializa e sincroniza dados mestre no localStorage
+// Inicializa armazenamento limpo no localStorage
 function ensureInit() {
-  const existingPlayers = getStored(STORAGE_KEYS.PLAYERS, []);
-  
-  // Se não existem atletas ou existem atletas faltando em relação ao seed mestre
-  if (!existingPlayers || existingPlayers.length < INITIAL_PLAYERS.length) {
-    const merged = [...(existingPlayers || [])];
-    INITIAL_PLAYERS.forEach(ip => {
-      const idx = merged.findIndex(p => p.id === ip.id || p.name.toLowerCase() === ip.name.toLowerCase());
-      if (idx === -1) {
-        merged.push(ip);
-      }
-    });
-    setStored(STORAGE_KEYS.PLAYERS, merged);
+  if (localStorage.getItem(STORAGE_KEYS.PLAYERS) === null) {
+    setStored(STORAGE_KEYS.PLAYERS, []);
   }
-
-  // Sincroniza e garante as equipes cadastradas
-  const existingTeams = getStored(STORAGE_KEYS.TEAMS, []);
-  if (!existingTeams || existingTeams.length < INITIAL_TEAMS.length) {
-    const mergedTeams = [...(existingTeams || [])];
-    INITIAL_TEAMS.forEach(it => {
-      const idx = mergedTeams.findIndex(t => t.id === it.id || t.name.toLowerCase() === it.name.toLowerCase());
-      if (idx === -1) {
-        mergedTeams.push(it);
-      } else {
-        // Atualiza player_ids se estiver vazio
-        if (!mergedTeams[idx].player_ids || mergedTeams[idx].player_ids.length === 0) {
-          mergedTeams[idx].player_ids = it.player_ids;
-        }
-      }
-    });
-    setStored(STORAGE_KEYS.TEAMS, mergedTeams);
+  if (localStorage.getItem(STORAGE_KEYS.TEAMS) === null) {
+    setStored(STORAGE_KEYS.TEAMS, []);
   }
-
-  // Garante ratings e observações base
-  const existingRatings = getStored(STORAGE_KEYS.RATINGS, []);
-  if (!existingRatings || existingRatings.length === 0) {
-    const initialRatings = INITIAL_PLAYERS.map(p => ({
-      id: p.id,
-      player_id: p.id,
-      user_id: 1,
-      ...p.attributes,
-      updated_at: NOW()
-    }));
-    setStored(STORAGE_KEYS.RATINGS, initialRatings);
+  if (localStorage.getItem(STORAGE_KEYS.MATCHES) === null) {
+    setStored(STORAGE_KEYS.MATCHES, []);
+  }
+  if (localStorage.getItem(STORAGE_KEYS.POINTS) === null) {
+    setStored(STORAGE_KEYS.POINTS, []);
+  }
+  if (localStorage.getItem(STORAGE_KEYS.RATINGS) === null) {
+    setStored(STORAGE_KEYS.RATINGS, []);
+  }
+  if (localStorage.getItem(STORAGE_KEYS.OBSERVATIONS) === null) {
+    setStored(STORAGE_KEYS.OBSERVATIONS, []);
+  }
+  if (localStorage.getItem(STORAGE_KEYS.ATTR_HISTORY) === null) {
+    setStored(STORAGE_KEYS.ATTR_HISTORY, []);
   }
 }
 

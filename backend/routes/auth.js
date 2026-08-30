@@ -118,4 +118,31 @@ router.post('/reset-password', (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// POST /api/auth/wipe-all
+// ─────────────────────────────────────────────
+router.post('/wipe-all', (req, res) => {
+  try {
+    const { run } = getDb();
+    run('DELETE FROM points');
+    run('DELETE FROM sets');
+    run('DELETE FROM matches');
+    run('DELETE FROM team_players');
+    run('DELETE FROM teams');
+    run('DELETE FROM player_observations');
+    run('DELETE FROM player_ratings');
+    run('DELETE FROM player_attributes');
+    run('DELETE FROM players');
+    run("DELETE FROM users WHERE LOWER(username) != 'admin'");
+    
+    // Garante que a senha do admin continue sendo admin123
+    const hash = bcrypt.hashSync('admin123', 10);
+    run("UPDATE users SET password_hash = ? WHERE LOWER(username) = 'admin'", [hash]);
+
+    res.json({ success: true, message: 'Todos os usuários extras, jogadores, times e partidas foram apagados com sucesso.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

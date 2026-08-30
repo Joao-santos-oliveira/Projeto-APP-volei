@@ -139,9 +139,8 @@ const SCHEMA = `
 
 // ── Seed ─────────────────────────────────────────────────────
 function seedPlayers() {
-  // Garante usuário admin padrão
+  // Garante apenas o usuário admin padrão
   const adminRow = db.exec("SELECT id FROM users WHERE username = 'admin'")[0]?.values[0];
-  let adminId;
   if (!adminRow) {
     const hash = bcrypt.hashSync('admin123', 10);
     db.run(
@@ -149,96 +148,8 @@ function seedPlayers() {
        VALUES ('admin', 'Admin', ?, '#f5c518', 1)`,
       [hash]
     );
-    adminId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0];
     console.log('✅ Usuário admin criado (senha: admin123)');
-  } else {
-    adminId = adminRow[0];
   }
-
-  const count = db.exec('SELECT COUNT(*) as c FROM players')[0]?.values[0][0];
-  if (count && count > 0) return;
-
-  const masterPlayers = [
-    { id: 1, name: 'João Gabriel', nickname: 'JG', number: 1, height: 181, primary_position: 'Levantador', secondary_positions: '[]', attrs: [9, 5, 5, 5, 5, 5, 5, 5, 5], obs: 'Excelente leitura de jogo. Levantamento preciso e rápido.' },
-    { id: 2, name: 'João Pedro', nickname: 'JP', number: 2, height: 200, primary_position: 'Central', secondary_positions: '["Oposto"]', attrs: [8, 6, 4, 9, 4, 3, 7, 7, 6], obs: 'Altura excepcional. Bloqueio muito forte.' },
-    { id: 3, name: 'Rafael', nickname: 'Rafa', number: 7, height: 191, primary_position: 'Ponteiro', secondary_positions: '[]', attrs: [9, 7, 6, 7, 6, 4, 7, 7, 6], obs: 'Ponteiro principal. Potente no ataque.' },
-    { id: 4, name: 'Carlos', nickname: 'Carlão', number: 10, height: 175, primary_position: 'Ponteiro', secondary_positions: '[]', attrs: [7, 8, 7, 5, 8, 4, 8, 7, 7], obs: 'Veloz e aguerrido. Bom saque flutuante.' },
-    { id: 5, name: 'Felipe', nickname: 'Fê', number: 5, height: 175, primary_position: 'Líbero', secondary_positions: '["Ponteiro"]', attrs: [4, 5, 9, 2, 9, 5, 9, 9, 7], obs: 'Líbero de excelente recepção. Comunicação impecável.' },
-    { id: 6, name: 'Richard', nickname: 'Richard', number: 13, height: 183, primary_position: 'Oposto', secondary_positions: '["Central","Líbero"]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' },
-    { id: 7, name: 'Gabriel', nickname: 'Gabriel', number: null, height: null, primary_position: 'Ponteiro', secondary_positions: '["Líbero","Oposto","Levantador"]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' },
-    { id: 8, name: 'Marcos', nickname: 'Marcos', number: null, height: null, primary_position: 'Levantador', secondary_positions: '["Levantador"]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' },
-    { id: 9, name: 'Caio', nickname: 'Caio', number: null, height: null, primary_position: 'Ponteiro', secondary_positions: '["Central"]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' },
-    { id: 10, name: 'Wudson', nickname: 'Wudson', number: null, height: null, primary_position: 'Ponteiro', secondary_positions: '[]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' },
-    { id: 11, name: 'Daniel', nickname: 'Daniel', number: null, height: null, primary_position: 'Líbero', secondary_positions: '["Ponteiro"]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' },
-    { id: 12, name: 'Andre', nickname: 'Andre', number: null, height: null, primary_position: 'Ponteiro', secondary_positions: '[]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' },
-    { id: 13, name: 'Miguel', nickname: 'Miguel', number: null, height: null, primary_position: 'Levantador', secondary_positions: '["Levantador","Ponteiro"]', attrs: [5, 5, 5, 5, 5, 5, 5, 5, 5], obs: '' }
-  ];
-
-  for (const p of masterPlayers) {
-    const existing = db.exec(`SELECT id FROM players WHERE id = ${p.id} OR LOWER(name) = '${p.name.toLowerCase()}'`)[0]?.values[0];
-    let playerId = existing ? existing[0] : null;
-
-    if (!playerId) {
-      db.run(
-        `INSERT INTO players (id, name, nickname, number, height, primary_position, secondary_positions)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [p.id, p.name, p.nickname, p.number, p.height, p.primary_position, p.secondary_positions]
-      );
-      playerId = p.id;
-
-      // Histórico de atributos
-      db.run(
-        `INSERT INTO player_attributes
-           (player_id, attack, serve, reception, block, defense, setting, communication, consistency, versatility)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [playerId, ...p.attrs]
-      );
-
-      // Avaliação inicial
-      db.run(
-        `INSERT OR IGNORE INTO player_ratings
-           (player_id, user_id, attack, serve, reception, block, defense, setting, communication, consistency, versatility)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [playerId, adminId, ...p.attrs]
-      );
-
-      if (p.obs) {
-        db.run(
-          `INSERT INTO player_observations (player_id, user_id, text) VALUES (?, ?, ?)`,
-          [playerId, adminId, p.obs]
-        );
-      }
-    }
-  }
-
-  // Seed de equipes
-  const masterTeams = [
-    { id: 1, name: 'Boizão', color: '#f51919', description: 'Equipe Principal Boizão', players: [4, 5, 1, 6, 3, 2] },
-    { id: 2, name: 'UEMG', color: '#f5c518', description: 'Equipe Universitária UEMG', players: [12, 9, 11, 7, 8, 10] },
-    { id: 3, name: 'UFSJ', color: '#3b82f6', description: 'Equipe Universitária UFSJ', players: [13] }
-  ];
-
-  for (const t of masterTeams) {
-    const existingTeam = db.exec(`SELECT id FROM teams WHERE id = ${t.id} OR LOWER(name) = '${t.name.toLowerCase()}'`)[0]?.values[0];
-    let teamId = existingTeam ? existingTeam[0] : null;
-
-    if (!teamId) {
-      db.run(
-        `INSERT INTO teams (id, name, color, description) VALUES (?, ?, ?, ?)`,
-        [t.id, t.name, t.color, t.description]
-      );
-      teamId = t.id;
-    }
-
-    for (const pid of t.players) {
-      db.run(
-        `INSERT OR IGNORE INTO team_players (team_id, player_id) VALUES (?, ?)`,
-        [teamId, pid]
-      );
-    }
-  }
-
-  console.log('✅ Seed completo: 13 jogadores e 3 equipes sincronizados');
 }
 
 // ── Salvar banco em disco ─────────────────────────────────────
