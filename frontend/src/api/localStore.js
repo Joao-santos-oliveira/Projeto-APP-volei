@@ -489,58 +489,100 @@ export const localStore = {
   },
 
   // ── TIMES ──────────────────────────────────
+  _extractPlayerIds(team) {
+    if (!team) return [];
+    if (Array.isArray(team.player_ids) && team.player_ids.length > 0) {
+      return team.player_ids.map(id => Number(id)).filter(id => !isNaN(id));
+    }
+    if (Array.isArray(team.players) && team.players.length > 0) {
+      return team.players.map(p => Number(typeof p === 'object' ? p.id : p)).filter(id => !isNaN(id));
+    }
+    return [];
+  },
+
   async getTeams() {
+    ensureInit();
     const teams = getStored(STORAGE_KEYS.TEAMS, []);
     const players = getStored(STORAGE_KEYS.PLAYERS, []);
-    return teams.map(t => ({
-      ...t,
-      players: players.filter(p => (t.player_ids || []).includes(p.id))
-    }));
+    return teams.map(t => {
+      const pIds = this._extractPlayerIds(t);
+      let matchedPlayers = players.filter(p => pIds.includes(Number(p.id)));
+      if (matchedPlayers.length === 0 && Array.isArray(t.players) && t.players.length > 0 && typeof t.players[0] === 'object') {
+        matchedPlayers = t.players;
+      }
+      return {
+        ...t,
+        player_ids: pIds,
+        players: matchedPlayers
+      };
+    });
   },
 
   async getTeam(id) {
+    ensureInit();
     const numId = parseInt(id);
     const teams = getStored(STORAGE_KEYS.TEAMS, []);
     const players = getStored(STORAGE_KEYS.PLAYERS, []);
-    const team = teams.find(t => t.id === numId);
+    const team = teams.find(t => Number(t.id) === numId);
     if (!team) throw new Error('Time não encontrado');
+    const pIds = this._extractPlayerIds(team);
+    let matchedPlayers = players.filter(p => pIds.includes(Number(p.id)));
+    if (matchedPlayers.length === 0 && Array.isArray(team.players) && team.players.length > 0 && typeof team.players[0] === 'object') {
+      matchedPlayers = team.players;
+    }
     return {
       ...team,
-      players: players.filter(p => (team.player_ids || []).includes(p.id))
+      player_ids: pIds,
+      players: matchedPlayers
     };
   },
 
   async createTeam(data) {
+    ensureInit();
     const teams = getStored(STORAGE_KEYS.TEAMS, []);
-    const newId = teams.length > 0 ? Math.max(...teams.map(t => t.id)) + 1 : 1;
+    const newId = data.id ? Number(data.id) : (teams.length > 0 ? Math.max(...teams.map(t => Number(t.id) || 0)) + 1 : 1);
+    const pIds = this._extractPlayerIds(data);
     const newTeam = {
       id: newId,
       name: data.name,
       description: data.description || '',
       color: data.color || '#f5c518',
       photo: data.photo || null,
-      player_ids: data.player_ids || [],
-      created_at: NOW(),
-      updated_at: NOW()
+      player_ids: pIds,
+      created_at: data.created_at || NOW(),
+      updated_at: data.updated_at || NOW()
     };
-    teams.push(newTeam);
+    const existingIndex = teams.findIndex(t => Number(t.id) === newId);
+    if (existingIndex >= 0) {
+      teams[existingIndex] = { ...teams[existingIndex], ...newTeam };
+    } else {
+      teams.push(newTeam);
+    }
     setStored(STORAGE_KEYS.TEAMS, teams);
     return this.getTeam(newId);
   },
 
   async updateTeam(id, data) {
+    ensureInit();
     const numId = parseInt(id);
     const teams = getStored(STORAGE_KEYS.TEAMS, []);
-    const index = teams.findIndex(t => t.id === numId);
+    const index = teams.findIndex(t => Number(t.id) === numId);
     if (index === -1) throw new Error('Time não encontrado');
     const current = teams[index];
+    let updatedPlayerIds = current.player_ids;
+    if (data.player_ids !== undefined) {
+      updatedPlayerIds = (Array.isArray(data.player_ids) ? data.player_ids : []).map(x => Number(x)).filter(x => !isNaN(x));
+    } else if (data.players !== undefined) {
+      updatedPlayerIds = this._extractPlayerIds(data);
+    }
+
     teams[index] = {
       ...current,
       name:        data.name        !== undefined ? data.name        : current.name,
       description: data.description !== undefined ? data.description : current.description,
       color:       data.color       !== undefined ? data.color       : current.color,
       photo:       data.photo       !== undefined ? data.photo       : current.photo,
-      player_ids:  data.player_ids  !== undefined ? data.player_ids  : current.player_ids,
+      player_ids:  updatedPlayerIds,
       updated_at: NOW()
     };
     setStored(STORAGE_KEYS.TEAMS, teams);
@@ -548,31 +590,47 @@ export const localStore = {
   },
 
   async deleteTeam(id) {
+    ensureInit();
     const numId = parseInt(id);
     let teams = getStored(STORAGE_KEYS.TEAMS, []);
-    teams = teams.filter(t => t.id !== numId);
+    teams = teams.filter(t => Number(t.id) !== numId);
     setStored(STORAGE_KEYS.TEAMS, teams);
     return { message: 'Time removido' };
   },
 
   async addPlayerToTeam(teamId, playerId) {
+    ensureInit();
     const numId = parseInt(teamId);
+    const pNumId = parseInt(playerId);
     const teams = getStored(STORAGE_KEYS.TEAMS, []);
-    const index = teams.findIndex(t => t.id === numId);
+    const index = teams.findIndex(t => Number(t.id) === numId);
     if (index === -1) throw new Error('Time não encontrado');
-    const pIds = teams[index].player_ids || [];
-    if (!pIds.includes(playerId)) teams[index].player_ids = [...pIds, playerId];
+    const pIds = this._extractPlayerIds(teams[index]);
+    if (!pIds.includes(pNumId)) {
+      pIds.push(pNumId);
+    }
+    teams[index] = {
+      ...teams[index],
+      player_ids: pIds,
+      updated_at: NOW()
+    };
     setStored(STORAGE_KEYS.TEAMS, teams);
     return this.getTeam(numId);
   },
 
   async removePlayerFromTeam(teamId, playerId) {
+    ensureInit();
     const numId = parseInt(teamId);
     const pNumId = parseInt(playerId);
     const teams = getStored(STORAGE_KEYS.TEAMS, []);
-    const index = teams.findIndex(t => t.id === numId);
+    const index = teams.findIndex(t => Number(t.id) === numId);
     if (index === -1) throw new Error('Time não encontrado');
-    teams[index].player_ids = (teams[index].player_ids || []).filter(id => id !== pNumId);
+    const pIds = this._extractPlayerIds(teams[index]);
+    teams[index] = {
+      ...teams[index],
+      player_ids: pIds.filter(id => id !== pNumId),
+      updated_at: NOW()
+    };
     setStored(STORAGE_KEYS.TEAMS, teams);
     return this.getTeam(numId);
   },

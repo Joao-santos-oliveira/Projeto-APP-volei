@@ -40,7 +40,11 @@ function buildTeam(team, query) {
     };
   });
 
-  return { ...team, players: fullPlayers };
+  return {
+    ...team,
+    player_ids: fullPlayers.map(p => Number(p.id)),
+    players: fullPlayers
+  };
 }
 
 // ─────────────────────────────────────────────

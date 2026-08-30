@@ -63,7 +63,10 @@ async function request(method, path, body) {
     // Sincroniza mutações (POST, PUT, DELETE, PATCH) no armazenamento local do dispositivo
     if (method !== 'GET') {
       try {
-        await routeToLocalStore(method, path, body || data);
+        const syncPayload = (typeof body === 'object' && body !== null) || (typeof data === 'object' && data !== null)
+          ? { ...(body || {}), ...(data || {}) }
+          : (data || body);
+        await routeToLocalStore(method, path, syncPayload);
       } catch (syncErr) {
         console.warn('[API Sync] Falha ao sincronizar localmente:', syncErr);
       }
@@ -113,7 +116,7 @@ async function routeToLocalStore(method, path, body) {
   if (teamDetail && method === 'DELETE') return localStore.deleteTeam(teamDetail[1]);
 
   const teamAddPlayer = path.match(/^\/teams\/(\d+)\/players$/);
-  if (teamAddPlayer && method === 'POST') return localStore.addPlayerToTeam(teamAddPlayer[1], body.player_id);
+  if (teamAddPlayer && method === 'POST') return localStore.addPlayerToTeam(teamAddPlayer[1], body?.player_id);
 
   const teamRemovePlayer = path.match(/^\/teams\/(\d+)\/players\/(\d+)$/);
   if (teamRemovePlayer && method === 'DELETE') return localStore.removePlayerFromTeam(teamRemovePlayer[1], teamRemovePlayer[2]);
@@ -151,7 +154,17 @@ export const api = {
     }
     return localStore.getPlayers();
   },
-  getPlayer: (id) => request('GET', `/players/${id}`),
+  getPlayer: async (id) => {
+    try {
+      const remote = await request('GET', `/players/${id}`);
+      if (remote && remote.id) {
+        return remote;
+      }
+    } catch (e) {
+      console.warn(`[API] Erro ao buscar jogador ${id}, usando fallback local:`, e);
+    }
+    return localStore.getPlayer(id);
+  },
   createPlayer: (data) => request('POST', '/players', data),
   updatePlayer: (id, data) => request('PUT', `/players/${id}`, data),
   deletePlayer: (id) => request('DELETE', `/players/${id}`),
@@ -172,7 +185,17 @@ export const api = {
     }
     return localStore.getMatches();
   },
-  getMatch: (id) => request('GET', `/matches/${id}`),
+  getMatch: async (id) => {
+    try {
+      const remote = await request('GET', `/matches/${id}`);
+      if (remote && remote.id) {
+        return remote;
+      }
+    } catch (e) {
+      console.warn(`[API] Erro ao buscar partida ${id}, usando fallback local:`, e);
+    }
+    return localStore.getMatch(id);
+  },
   createMatch: (data) => request('POST', '/matches', data),
   addPoint: (id, data) => request('POST', `/matches/${id}/point`, data),
   undoPoint: (id) => request('DELETE', `/matches/${id}/point`),
@@ -184,15 +207,44 @@ export const api = {
     try {
       const remote = await request('GET', '/teams');
       if (Array.isArray(remote)) {
-        localStorage.setItem('volei_app_teams', JSON.stringify(remote));
-        return remote;
+        const normalized = remote.map(t => ({
+          ...t,
+          player_ids: Array.isArray(t.player_ids)
+            ? t.player_ids.map(Number)
+            : (Array.isArray(t.players) ? t.players.map(p => Number(typeof p === 'object' ? p.id : p)) : [])
+        }));
+        localStorage.setItem('volei_app_teams', JSON.stringify(normalized));
+        return normalized;
       }
     } catch (e) {
       console.warn('[API] Erro ao buscar equipes remotas, usando cache local:', e);
     }
     return localStore.getTeams();
   },
-  getTeam: (id) => request('GET', `/teams/${id}`),
+  getTeam: async (id) => {
+    try {
+      const remote = await request('GET', `/teams/${id}`);
+      if (remote && remote.id) {
+        const normalized = {
+          ...remote,
+          player_ids: Array.isArray(remote.player_ids)
+            ? remote.player_ids.map(Number)
+            : (Array.isArray(remote.players) ? remote.players.map(p => Number(typeof p === 'object' ? p.id : p)) : [])
+        };
+        try {
+          const stored = JSON.parse(localStorage.getItem('volei_app_teams') || '[]');
+          const idx = stored.findIndex(t => Number(t.id) === Number(id));
+          if (idx >= 0) stored[idx] = { ...stored[idx], ...normalized };
+          else stored.push(normalized);
+          localStorage.setItem('volei_app_teams', JSON.stringify(stored));
+        } catch {}
+        return normalized;
+      }
+    } catch (e) {
+      console.warn(`[API] Erro ao buscar time ${id}, usando fallback local:`, e);
+    }
+    return localStore.getTeam(id);
+  },
   createTeam: (data) => request('POST', '/teams', data),
   updateTeam: (id, data) => request('PUT', `/teams/${id}`, data),
   deleteTeam: (id) => request('DELETE', `/teams/${id}`),
