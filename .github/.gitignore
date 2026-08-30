@@ -1,0 +1,35 @@
+# Dependências
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+dist-ssr/
+build/
+*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Ambientes e segredos
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Banco local e locks
+backend/db/*.db
+backend/db/*.db-wal
+backend/db/*.db-shm
+
+# IDEs e OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

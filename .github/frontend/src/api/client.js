@@ -17,27 +17,42 @@ const API_URL = import.meta.env.VITE_API_URL || (
 
 // Flag de controle para saber se o backend está acessível
 let isBackendAvailable = null;
+let lastCheckAt = 0;
+const RECHECK_INTERVAL_MS = 15000; // depois de marcar como indisponível, tenta de novo a cada 15s
 
-async function checkBackend() {
-  if (isBackendAvailable !== null) return isBackendAvailable;
-
-  if (import.meta.env.VITE_STANDALONE === 'true') {
-    isBackendAvailable = false;
-    return false;
-  }
-
+async function pingHealth(timeoutMs) {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
-    const res = await fetch(`${API_URL}/health`, {
-      signal: controller.signal
-    });
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(`${API_URL}/health`, { signal: controller.signal });
     clearTimeout(timeoutId);
-    isBackendAvailable = res.ok;
+    return res.ok;
   } catch {
-    isBackendAvailable = false;
+    return false;
   }
-  return isBackendAvailable;
+}
+
+async function checkBackend() {
+  if (import.meta.env.VITE_STANDALONE === 'true') return false;
+
+  // Se já sabemos que está disponível, confia (evita checar a cada request).
+  if (isBackendAvailable === true) return true;
+
+  // Se marcamos como indisponível recentemente, só tenta de novo depois do intervalo
+  // (em vez de ficar travado no modo offline até a página ser recarregada).
+  const now = Date.now();
+  if (isBackendAvailable === false && (now - lastCheckAt) < RECHECK_INTERVAL_MS) {
+    return false;
+  }
+  lastCheckAt = now;
+
+  // Primeira tentativa: timeout curto. Se falhar, dá mais tempo (Render free
+  // pode levar 30-50s pra "acordar" um serviço que estava inativo).
+  let ok = await pingHealth(4000);
+  if (!ok) ok = await pingHealth(45000);
+
+  isBackendAvailable = ok;
+  return ok;
 }
 
 async function request(method, path, body) {
