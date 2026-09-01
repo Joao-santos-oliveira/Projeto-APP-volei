@@ -168,13 +168,23 @@ async function routeToLocalStore(method, path, body) {
   throw new Error(`Rota localStore não implementada: ${method} ${path}`);
 }
 
+// Guarda uma cópia em cache no localStorage sem nunca derrubar os dados reais
+// que vieram do servidor caso o cache falhe (ex: QuotaExceededError - "sem espaço").
+function safeCacheSet(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn(`[API Cache] Não foi possível guardar cache local de "${key}" (provavelmente localStorage cheio):`, e);
+  }
+}
+
 export const api = {
   // Players
   getPlayers: async () => {
     try {
       const remote = await request('GET', '/players');
       if (Array.isArray(remote)) {
-        localStorage.setItem('volei_app_players', JSON.stringify(remote));
+        safeCacheSet('volei_app_players', remote);
         return remote;
       }
     } catch (e) {
@@ -195,7 +205,7 @@ export const api = {
     try {
       const remote = await request('GET', '/matches');
       if (Array.isArray(remote)) {
-        localStorage.setItem('volei_app_matches', JSON.stringify(remote));
+        safeCacheSet('volei_app_matches', remote);
         return remote;
       }
     } catch (e) {
@@ -215,7 +225,7 @@ export const api = {
     try {
       const remote = await request('GET', '/teams');
       if (Array.isArray(remote)) {
-        localStorage.setItem('volei_app_teams', JSON.stringify(remote));
+        safeCacheSet('volei_app_teams', remote);
         return remote;
       }
     } catch (e) {
