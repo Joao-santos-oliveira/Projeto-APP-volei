@@ -17,27 +17,42 @@ const API_URL = import.meta.env.VITE_API_URL || (
 
 // Flag de controle para saber se o backend está acessível
 let isBackendAvailable = null;
+let lastCheckAt = 0;
+const RECHECK_INTERVAL_MS = 15000; // depois de marcar como indisponível, tenta de novo a cada 15s
 
-async function checkBackend() {
-  if (isBackendAvailable !== null) return isBackendAvailable;
-
-  if (import.meta.env.VITE_STANDALONE === 'true') {
-    isBackendAvailable = false;
-    return false;
-  }
-
+async function pingHealth(timeoutMs) {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
-    const res = await fetch(`${API_URL}/health`, {
-      signal: controller.signal
-    });
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(`${API_URL}/health`, { signal: controller.signal });
     clearTimeout(timeoutId);
-    isBackendAvailable = res.ok;
+    return res.ok;
   } catch {
-    isBackendAvailable = false;
+    return false;
   }
-  return isBackendAvailable;
+}
+
+async function checkBackend() {
+  if (import.meta.env.VITE_STANDALONE === 'true') return false;
+
+  // Se já sabemos que está disponível, confia (evita checar a cada request).
+  if (isBackendAvailable === true) return true;
+
+  // Se marcamos como indisponível recentemente, só tenta de novo depois do intervalo
+  // (em vez de ficar travado no modo offline até a página ser recarregada).
+  const now = Date.now();
+  if (isBackendAvailable === false && (now - lastCheckAt) < RECHECK_INTERVAL_MS) {
+    return false;
+  }
+  lastCheckAt = now;
+
+  // Primeira tentativa: timeout curto. Se falhar, dá mais tempo (Render free
+  // pode levar 30-50s pra "acordar" um serviço que estava inativo).
+  let ok = await pingHealth(4000);
+  if (!ok) ok = await pingHealth(45000);
+
+  isBackendAvailable = ok;
+  return ok;
 }
 
 async function request(method, path, body) {
@@ -48,8 +63,9 @@ async function request(method, path, body) {
   }
 
   const token = localStorage.getItem('volei_token');
+  let res;
   try {
-    const res = await fetch(`${API_URL}${path}`, {
+    res = await fetch(`${API_URL}${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -57,27 +73,39 @@ async function request(method, path, body) {
       },
       body: body ? JSON.stringify(body) : undefined
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erro na requisição');
-
-    // Sincroniza mutações (POST, PUT, DELETE, PATCH) no armazenamento local do dispositivo
-    if (method !== 'GET') {
-      try {
-        const syncPayload = (typeof body === 'object' && body !== null) || (typeof data === 'object' && data !== null)
-          ? { ...(body || {}), ...(data || {}) }
-          : (data || body);
-        await routeToLocalStore(method, path, syncPayload);
-      } catch (syncErr) {
-        console.warn('[API Sync] Falha ao sincronizar localmente:', syncErr);
-      }
-    }
-
-    return data;
-  } catch (err) {
-    console.warn(`[API] Falha ao comunicar com backend (${path}), alternando para modo local...`, err);
+  } catch (networkErr) {
+    // Falha real de conectividade (fetch nem completou) — aí sim é modo offline de verdade.
+    console.warn(`[API] Backend inacessível (${path}), alternando para modo local...`, networkErr);
     isBackendAvailable = false;
     return routeToLocalStore(method, path, body);
   }
+
+  let data = null;
+  try { data = await res.json(); } catch { /* resposta sem corpo JSON */ }
+
+  if (!res.ok) {
+    // O backend respondeu (está no ar) — o erro é da aplicação (ex: sessão expirada,
+    // validação, permissão). NÃO cai pro modo local mascarando como se tivesse salvo:
+    // propaga o erro de verdade pra tela poder avisar o usuário.
+    const err = new Error(data?.error || `Erro ${res.status} na requisição`);
+    err.status = res.status;
+    if (res.status === 401) {
+      err.isAuthError = true;
+      localStorage.removeItem('volei_token');
+    }
+    throw err;
+  }
+
+  // Sincroniza mutações (POST, PUT, DELETE, PATCH) no armazenamento local do dispositivo
+  if (method !== 'GET') {
+    try {
+      await routeToLocalStore(method, path, body || data);
+    } catch (syncErr) {
+      console.warn('[API Sync] Falha ao sincronizar localmente:', syncErr);
+    }
+  }
+
+  return data;
 }
 
 // Router que mapeia chamadas REST para os métodos do localStore
@@ -116,7 +144,7 @@ async function routeToLocalStore(method, path, body) {
   if (teamDetail && method === 'DELETE') return localStore.deleteTeam(teamDetail[1]);
 
   const teamAddPlayer = path.match(/^\/teams\/(\d+)\/players$/);
-  if (teamAddPlayer && method === 'POST') return localStore.addPlayerToTeam(teamAddPlayer[1], body?.player_id);
+  if (teamAddPlayer && method === 'POST') return localStore.addPlayerToTeam(teamAddPlayer[1], body.player_id);
 
   const teamRemovePlayer = path.match(/^\/teams\/(\d+)\/players\/(\d+)$/);
   if (teamRemovePlayer && method === 'DELETE') return localStore.removePlayerFromTeam(teamRemovePlayer[1], teamRemovePlayer[2]);
@@ -154,17 +182,7 @@ export const api = {
     }
     return localStore.getPlayers();
   },
-  getPlayer: async (id) => {
-    try {
-      const remote = await request('GET', `/players/${id}`);
-      if (remote && remote.id) {
-        return remote;
-      }
-    } catch (e) {
-      console.warn(`[API] Erro ao buscar jogador ${id}, usando fallback local:`, e);
-    }
-    return localStore.getPlayer(id);
-  },
+  getPlayer: (id) => request('GET', `/players/${id}`),
   createPlayer: (data) => request('POST', '/players', data),
   updatePlayer: (id, data) => request('PUT', `/players/${id}`, data),
   deletePlayer: (id) => request('DELETE', `/players/${id}`),
@@ -185,17 +203,7 @@ export const api = {
     }
     return localStore.getMatches();
   },
-  getMatch: async (id) => {
-    try {
-      const remote = await request('GET', `/matches/${id}`);
-      if (remote && remote.id) {
-        return remote;
-      }
-    } catch (e) {
-      console.warn(`[API] Erro ao buscar partida ${id}, usando fallback local:`, e);
-    }
-    return localStore.getMatch(id);
-  },
+  getMatch: (id) => request('GET', `/matches/${id}`),
   createMatch: (data) => request('POST', '/matches', data),
   addPoint: (id, data) => request('POST', `/matches/${id}/point`, data),
   undoPoint: (id) => request('DELETE', `/matches/${id}/point`),
@@ -207,44 +215,15 @@ export const api = {
     try {
       const remote = await request('GET', '/teams');
       if (Array.isArray(remote)) {
-        const normalized = remote.map(t => ({
-          ...t,
-          player_ids: Array.isArray(t.player_ids)
-            ? t.player_ids.map(Number)
-            : (Array.isArray(t.players) ? t.players.map(p => Number(typeof p === 'object' ? p.id : p)) : [])
-        }));
-        localStorage.setItem('volei_app_teams', JSON.stringify(normalized));
-        return normalized;
+        localStorage.setItem('volei_app_teams', JSON.stringify(remote));
+        return remote;
       }
     } catch (e) {
       console.warn('[API] Erro ao buscar equipes remotas, usando cache local:', e);
     }
     return localStore.getTeams();
   },
-  getTeam: async (id) => {
-    try {
-      const remote = await request('GET', `/teams/${id}`);
-      if (remote && remote.id) {
-        const normalized = {
-          ...remote,
-          player_ids: Array.isArray(remote.player_ids)
-            ? remote.player_ids.map(Number)
-            : (Array.isArray(remote.players) ? remote.players.map(p => Number(typeof p === 'object' ? p.id : p)) : [])
-        };
-        try {
-          const stored = JSON.parse(localStorage.getItem('volei_app_teams') || '[]');
-          const idx = stored.findIndex(t => Number(t.id) === Number(id));
-          if (idx >= 0) stored[idx] = { ...stored[idx], ...normalized };
-          else stored.push(normalized);
-          localStorage.setItem('volei_app_teams', JSON.stringify(stored));
-        } catch {}
-        return normalized;
-      }
-    } catch (e) {
-      console.warn(`[API] Erro ao buscar time ${id}, usando fallback local:`, e);
-    }
-    return localStore.getTeam(id);
-  },
+  getTeam: (id) => request('GET', `/teams/${id}`),
   createTeam: (data) => request('POST', '/teams', data),
   updateTeam: (id, data) => request('PUT', `/teams/${id}`, data),
   deleteTeam: (id) => request('DELETE', `/teams/${id}`),
