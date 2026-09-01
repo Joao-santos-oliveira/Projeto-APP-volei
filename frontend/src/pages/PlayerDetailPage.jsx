@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Edit2, Trash2, TrendingUp, Star, Send, X as XIcon,
   Shield, Activity, MessageSquare, BarChart2, Award, Crosshair, Ruler, Calendar,
-  Lock, CheckCircle2, AlertTriangle, Zap, PieChart as PieIcon
+  Lock, CheckCircle2, AlertTriangle, Zap, PieChart as PieIcon, Trophy, Heart
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -22,6 +22,7 @@ import {
   formatDate, getPlayerProficiencies, avgTechnical
 } from '../utils/constants';
 import { calculateStatAttributes } from '../utils/statAttributes';
+import { getMatchHighlights, processPopularVotes } from '../utils/matchMvp';
 
 const PIE_COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316', '#84CC16', '#64748B'];
 const ACTION_LABELS = {
@@ -317,10 +318,16 @@ export default function PlayerDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [tab, setTab] = useState('overview');
 
+  const [matches, setMatches] = useState([]);
+
   const load = useCallback(async () => {
     try {
-      const data = await api.getPlayer(id);
-      setPlayer(data);
+      const [playerData, matchesData] = await Promise.all([
+        api.getPlayer(id),
+        api.getMatches().catch(() => [])
+      ]);
+      setPlayer(playerData);
+      setMatches(matchesData || []);
     } catch {
       toast('Atleta não encontrado', 'error');
       navigate('/');
@@ -373,6 +380,21 @@ export default function PlayerDetailPage() {
   const avg = avgTechnical(player.attributes);
   const attrs = player.attributes || {};
   const statCardData = calculateStatAttributes(player);
+
+  // ── Prêmios de MVP da Partida e Craque da Galera ──
+  const playerIdNum = Number(id);
+  const finishedMatches = matches.filter(m => m.status === 'finished');
+
+  const mvpMatches = finishedMatches.filter(m => {
+    const h = getMatchHighlights(m);
+    return h.mvp && h.mvp.id === playerIdNum;
+  });
+
+  const popularMvpMatches = finishedMatches.filter(m => {
+    const h = getMatchHighlights(m);
+    const pop = processPopularVotes(m.votes || [], h.playerStats);
+    return pop.popularMvp && pop.popularMvp.id === playerIdNum;
+  });
 
   const evolutionData = player.attribute_history?.map(h => ({
     date: formatDate(h.recorded_at),
@@ -453,16 +475,29 @@ export default function PlayerDetailPage() {
                 </span>
               </div>
 
+              <div className="geo-strip-item" style={{ borderColor: mvpMatches.length > 0 ? 'var(--gold)' : 'var(--border)' }}>
+                <span className="geo-strip-label" style={{ color: mvpMatches.length > 0 ? 'var(--gold)' : 'var(--text-muted)' }}>
+                  👑 MVP (SCOUT)
+                </span>
+                <span className="geo-strip-val highlight" style={{ color: mvpMatches.length > 0 ? 'var(--gold)' : '#FFFFFF' }}>
+                  {mvpMatches.length}x
+                </span>
+              </div>
+
+              <div className="geo-strip-item" style={{ borderColor: popularMvpMatches.length > 0 ? '#EC4899' : 'var(--border)' }}>
+                <span className="geo-strip-label" style={{ color: popularMvpMatches.length > 0 ? '#F472B6' : 'var(--text-muted)' }}>
+                  ⭐ CRAQUE GALERA
+                </span>
+                <span className="geo-strip-val highlight" style={{ color: popularMvpMatches.length > 0 ? '#F472B6' : '#FFFFFF' }}>
+                  {popularMvpMatches.length}x
+                </span>
+              </div>
+
               <div className="geo-strip-item">
                 <span className="geo-strip-label">MÉDIA SUBJETIVA</span>
                 <span className="geo-strip-val highlight" style={{
                   color: parseFloat(avg) >= 7.5 ? '#10B981' : parseFloat(avg) >= 5.5 ? '#E5A93C' : '#EF4444'
                 }}>{avg}</span>
-              </div>
-
-              <div className="geo-strip-item">
-                <span className="geo-strip-label">ALTURA</span>
-                <span className="geo-strip-val">{player.height ? `${player.height} CM` : '—'}</span>
               </div>
 
               <div className="geo-strip-item">
@@ -518,6 +553,94 @@ export default function PlayerDetailPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Ficha Estatística Imutável em Destaque */}
           <PlayerStatCard player={player} />
+
+          {/* Galeria de Troféus & Premiações de MVP */}
+          {(mvpMatches.length > 0 || popularMvpMatches.length > 0) && (
+            <div className="geo-panel" style={{ background: 'linear-gradient(180deg, rgba(245,183,56,0.06) 0%, var(--bg-panel) 100%)', borderColor: 'rgba(245,183,56,0.3)' }}>
+              <div className="geo-panel-header">
+                <div>
+                  <div className="geo-eyebrow" style={{ color: 'var(--gold)' }}>CONQUISTAS EM PARTIDAS</div>
+                  <h3 className="geo-panel-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Trophy size={18} color="var(--gold)" /> GALERIA DE HONRAS & PREMIAÇÕES ({mvpMatches.length + popularMvpMatches.length})
+                  </h3>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {mvpMatches.map(m => (
+                  <div
+                    key={`mvp_${m.id}`}
+                    onClick={() => navigate(`/history/${m.id}`)}
+                    style={{
+                      cursor: 'pointer',
+                      background: 'rgba(245,183,56,0.08)',
+                      border: '1px solid rgba(245,183,56,0.35)',
+                      borderRadius: 10,
+                      padding: '12px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 22 }}>👑</span>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--gold)', textTransform: 'uppercase' }}>
+                          CRAQUE DA PARTIDA (SCOUT)
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: '#FFFFFF', marginTop: 2 }}>
+                          {m.home_team} vs {m.away_team}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                          {formatDate(m.created_at)}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--gold)', fontWeight: 800 }}>
+                      VER JOGO →
+                    </div>
+                  </div>
+                ))}
+
+                {popularMvpMatches.map(m => (
+                  <div
+                    key={`pop_${m.id}`}
+                    onClick={() => navigate(`/history/${m.id}?tab=voting`)}
+                    style={{
+                      cursor: 'pointer',
+                      background: 'rgba(236,72,153,0.08)',
+                      border: '1px solid rgba(236,72,153,0.35)',
+                      borderRadius: 10,
+                      padding: '12px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 22 }}>⭐</span>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 900, color: '#F472B6', textTransform: 'uppercase' }}>
+                          CRAQUE DA GALERA (VOTAÇÃO)
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: '#FFFFFF', marginTop: 2 }}>
+                          {m.home_team} vs {m.away_team}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                          {formatDate(m.created_at)}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: '#F472B6', fontWeight: 800 }}>
+                      VER VOTOS →
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="geo-overview-grid">
             <div className="geo-panel">

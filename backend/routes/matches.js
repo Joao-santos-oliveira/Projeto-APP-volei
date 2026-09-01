@@ -9,13 +9,28 @@ async function buildMatch(match, query) {
   if (!match) return null;
   const sets = await query('SELECT * FROM sets WHERE match_id = ? ORDER BY set_number', [match.id]);
   const players = await query(`
-    SELECT mp.team, p.id, p.name, p.nickname, p.primary_position, p.number
+    SELECT mp.team, p.id, p.name, p.nickname, p.primary_position, p.number, p.photo
     FROM match_players mp JOIN players p ON p.id = mp.player_id
     WHERE mp.match_id = ?
   `, [match.id]);
+
+  let votes = [];
+  try {
+    votes = await query(`
+      SELECT mv.*, p.name as player_name, p.nickname as player_nickname
+      FROM match_votes mv
+      JOIN players p ON p.id = mv.player_id
+      WHERE mv.match_id = ?
+      ORDER BY mv.created_at ASC
+    `, [match.id]);
+  } catch (e) {
+    votes = [];
+  }
+
   return {
     ...match,
     sets,
+    votes,
     home_players: players.filter(p => p.team === 'home'),
     away_players: players.filter(p => p.team === 'away')
   };
@@ -178,8 +193,66 @@ router.delete('/:id/point', requireAuth, async (req, res) => {
 router.patch('/:id/finish', requireAuth, async (req, res) => {
   try {
     const { run } = getDb();
-    await run(`UPDATE matches SET status = 'finished' WHERE id = ?`, [req.params.id]);
+    await run(`UPDATE matches SET status = 'finished', finished_at = ? WHERE id = ?`, [NOW(), req.params.id]);
     res.json({ message: 'Partida finalizada' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/matches/:id/vote (Votação Popular - Craque da Galera - 2h)
+// ─────────────────────────────────────────────
+router.post('/:id/vote', async (req, res) => {
+  try {
+    const { queryOne, run } = getDb();
+    const matchId = parseInt(req.params.id);
+    const { player_id } = req.body;
+    if (!player_id) return res.status(400).json({ error: 'Atleta não informado' });
+
+    const match = await queryOne('SELECT * FROM matches WHERE id = ?', [matchId]);
+    if (!match) return res.status(404).json({ error: 'Partida não encontrada' });
+    if (match.status !== 'finished') return res.status(400).json({ error: 'A votação popular só é permitida após a conclusão da partida' });
+
+    // Janela de 2 horas (2 * 60 * 60 * 1000 ms)
+    const finishTimeStr = match.finished_at || match.created_at;
+    const finishTime = finishTimeStr ? new Date(finishTimeStr.replace(' ', 'T')).getTime() : Date.now();
+    const elapsed = Date.now() - finishTime;
+    const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+    if (elapsed > TWO_HOURS_MS) {
+      return res.status(400).json({ error: 'O prazo de 2 horas para votação popular nesta partida já foi encerrado' });
+    }
+
+    const voterIdentifier = req.headers['x-voter-id'] || (req.user ? `user_${req.user.id}` : (req.ip || 'client_anon'));
+
+    await run(`
+      INSERT INTO match_votes (match_id, player_id, voter_identifier, created_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT (match_id, voter_identifier)
+      DO UPDATE SET player_id = EXCLUDED.player_id, created_at = EXCLUDED.created_at
+    `, [matchId, player_id, voterIdentifier, NOW()]);
+
+    res.json({ message: 'Voto registrado com sucesso!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// GET /api/matches/:id/votes
+// ─────────────────────────────────────────────
+router.get('/:id/votes', async (req, res) => {
+  try {
+    const { query } = getDb();
+    const matchId = parseInt(req.params.id);
+    const votes = await query(`
+      SELECT mv.*, p.name as player_name, p.nickname as player_nickname, p.photo as player_photo
+      FROM match_votes mv
+      JOIN players p ON p.id = mv.player_id
+      WHERE mv.match_id = ?
+      ORDER BY mv.created_at ASC
+    `, [matchId]);
+    res.json(votes);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

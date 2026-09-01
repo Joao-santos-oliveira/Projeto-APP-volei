@@ -134,6 +134,12 @@ async function routeToLocalStore(method, path, body) {
   const matchFinish = path.match(/^\/matches\/(\d+)\/finish$/);
   if (matchFinish && method === 'PATCH') return localStore.finishMatch(matchFinish[1]);
 
+  const matchVote = path.match(/^\/matches\/(\d+)\/vote$/);
+  if (matchVote && method === 'POST') return localStore.voteMatch(matchVote[1], body.player_id);
+
+  const matchVotes = path.match(/^\/matches\/(\d+)\/votes$/);
+  if (matchVotes && method === 'GET') return localStore.getMatchVotes(matchVotes[1]);
+
   // Teams
   if (path === '/teams' && method === 'GET') return localStore.getTeams();
   if (path === '/teams' && method === 'POST') return localStore.createTeam(body);
@@ -219,6 +225,8 @@ export const api = {
   undoPoint: (id) => request('DELETE', `/matches/${id}/point`),
   finishMatch: (id) => request('PATCH', `/matches/${id}/finish`),
   deleteMatch: (id) => request('DELETE', `/matches/${id}`),
+  voteMatch: (id, player_id) => request('POST', `/matches/${id}/vote`, { player_id }),
+  getMatchVotes: (id) => request('GET', `/matches/${id}/votes`),
 
   // Teams
   getTeams: async () => {

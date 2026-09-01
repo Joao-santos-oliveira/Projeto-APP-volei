@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RotateCcw, CheckCircle, Plus, ArrowLeft, Shield, Award, AlertCircle, Users } from 'lucide-react';
+import { RotateCcw, CheckCircle, Plus, ArrowLeft, Shield, Award, AlertCircle, Users, Trophy } from 'lucide-react';
 import { api } from '../api/client';
 import { useToast } from '../contexts/ToastContext';
 import { POINT_ACTIONS, getInitials } from '../utils/constants';
+import { getMatchHighlights } from '../utils/matchMvp';
 import PlayerForm from '../components/players/PlayerForm';
 import Modal from '../components/ui/Modal';
 
@@ -360,32 +361,107 @@ export default function LiveScorePage() {
       )}
 
       {/* Modal Confirmação Encerrar Partida */}
-      {showFinishConfirm && (
-        <Modal title="CONSOLIDAR E ENCERRAR PARTIDA" onClose={() => setShowFinishConfirm(false)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, textAlign: 'center', padding: '10px 0' }}>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245,183,56,0.15)', color: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
-              <AlertCircle size={24} />
-            </div>
-            <div>
-              <h3 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 16, fontWeight: 900, color: '#FFFFFF', marginBottom: 6 }}>
-                FINALIZAR PARTIDA E GERAR SCOUT?
-              </h3>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                O placar atual será consolidado no histórico e o relatório completo de fundamentos por atleta será gerado.
-              </p>
-            </div>
+      {showFinishConfirm && (() => {
+        const highlights = match ? getMatchHighlights({ ...match, home_players: homePlayers, away_players: awayPlayers }) : null;
+        const mvp = highlights?.mvp;
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 10 }}>
-              <button className="btn btn-secondary" onClick={() => setShowFinishConfirm(false)} disabled={finishing}>
-                VOLTAR AO JOGO
-              </button>
-              <button className="btn btn-gold" onClick={confirmFinishMatch} disabled={finishing}>
-                {finishing ? 'FINALIZANDO...' : 'SIM, CONSOLIDAR E GERAR SCOUT'}
-              </button>
+        return (
+          <Modal title="CONSOLIDAR E ENCERRAR PARTIDA" onClose={() => setShowFinishConfirm(false)}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, textAlign: 'center', padding: '10px 0' }}>
+              <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(245,183,56,0.15)', color: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', boxShadow: '0 0 20px rgba(245,183,56,0.2)' }}>
+                <Trophy size={28} />
+              </div>
+              <div>
+                <h3 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: 17, fontWeight: 900, color: '#FFFFFF', marginBottom: 6, letterSpacing: '0.04em' }}>
+                  CONSOLIDAR VITÓRIA & GERAR SCOUT
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  O placar será registrado no histórico e o relatório completo de estatísticas será gerado.
+                </p>
+              </div>
+
+              {mvp && (
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(245,183,56,0.12), rgba(15,23,42,0.6))',
+                  border: '1px solid rgba(245,183,56,0.4)',
+                  borderRadius: 12,
+                  padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  textAlign: 'left'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 10,
+                      background: 'var(--gold)',
+                      color: '#0F172A',
+                      fontWeight: 900,
+                      fontSize: 16,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 0 12px rgba(245,183,56,0.3)'
+                    }}>
+                      {getInitials(mvp.name)}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 900, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                        👑 CRAQUE DA PARTIDA (SCOUT)
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#FFFFFF' }}>
+                        {mvp.nickname || mvp.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {mvp.team === 'home' ? match.home_team : match.away_team} · {mvp.position}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--gold)', fontFamily: 'Space Grotesk, monospace' }}>
+                      {mvp.totalPoints} PTS
+                    </div>
+                    <div style={{ fontSize: 10, color: mvp.balance >= 0 ? '#10B981' : 'var(--danger)', fontWeight: 700 }}>
+                      Saldo: {mvp.balance >= 0 ? `+${mvp.balance}` : mvp.balance}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{
+                background: 'rgba(59,130,246,0.08)',
+                border: '1px solid rgba(59,130,246,0.2)',
+                borderRadius: 8,
+                padding: '10px 12px',
+                fontSize: 11,
+                color: '#93C5FD',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                textAlign: 'left'
+              }}>
+                <span style={{ fontSize: 16 }}>🗳️</span>
+                <span>
+                  <strong>Votação Popular:</strong> Ao encerrar, a votação do <strong>Craque da Galera</strong> ficará aberta por <strong>2 horas</strong> para a torcida votar.
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 10 }}>
+                <button className="btn btn-secondary" onClick={() => setShowFinishConfirm(false)} disabled={finishing}>
+                  VOLTAR AO JOGO
+                </button>
+                <button className="btn btn-gold" onClick={confirmFinishMatch} disabled={finishing}>
+                  {finishing ? 'FINALIZANDO...' : 'SIM, CONSOLIDAR E VER SCOUT'}
+                </button>
+              </div>
             </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        );
+      })()}
 
       {/* Modal Novo Jogador Rápido */}
       {showNewPlayer && (

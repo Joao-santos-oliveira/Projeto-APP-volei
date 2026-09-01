@@ -142,6 +142,15 @@ const SCHEMA = `
     away_score_after    INTEGER NOT NULL,
     timestamp           TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
   );
+
+  CREATE TABLE IF NOT EXISTS match_votes (
+    id                  SERIAL PRIMARY KEY,
+    match_id            INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    player_id           INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    voter_identifier    TEXT    NOT NULL,
+    created_at          TEXT    DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+    UNIQUE (match_id, voter_identifier)
+  );
 `;
 
 // ── Seed ─────────────────────────────────────────────────────
@@ -184,6 +193,11 @@ async function run(sql, params = []) {
 // ── Inicialização ─────────────────────────────────────────────
 async function initDatabase() {
   await pool.query(SCHEMA);
+  try {
+    await pool.query('ALTER TABLE matches ADD COLUMN IF NOT EXISTS finished_at TEXT');
+  } catch (e) {
+    // Ignora se coluna já existir
+  }
   await seedAdmin();
   console.log('🗄️  Banco Postgres pronto e conectado.');
   return { query, queryOne, run };

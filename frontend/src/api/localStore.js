@@ -10,7 +10,8 @@ const STORAGE_KEYS = {
   POINTS:       'volei_app_points',
   TEAMS:        'volei_app_teams',
   RATINGS:      'volei_app_ratings',
-  OBSERVATIONS: 'volei_app_observations'
+  OBSERVATIONS: 'volei_app_observations',
+  VOTES:        'volei_app_votes'
 };
 
 const NOW = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -58,6 +59,9 @@ function ensureInit() {
   }
   if (localStorage.getItem(STORAGE_KEYS.ATTR_HISTORY) === null) {
     setStored(STORAGE_KEYS.ATTR_HISTORY, []);
+  }
+  if (localStorage.getItem(STORAGE_KEYS.VOTES) === null) {
+    setStored(STORAGE_KEYS.VOTES, []);
   }
 }
 
@@ -316,12 +320,17 @@ export const localStore = {
     ensureInit();
     const matches = getStored(STORAGE_KEYS.MATCHES, []);
     const players = getStored(STORAGE_KEYS.PLAYERS, []);
+    const votes = getStored(STORAGE_KEYS.VOTES, []);
 
-    return matches.map(m => ({
-      ...m,
-      home_players: players.filter(p => (m.home_player_ids || []).includes(p.id)),
-      away_players: players.filter(p => (m.away_player_ids || []).includes(p.id))
-    })).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return matches.map(m => {
+      const matchVotes = votes.filter(v => v.match_id === m.id);
+      return {
+        ...m,
+        votes: matchVotes,
+        home_players: players.filter(p => (m.home_player_ids || []).includes(p.id)),
+        away_players: players.filter(p => (m.away_player_ids || []).includes(p.id))
+      };
+    }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   },
 
   async getMatch(id) {
@@ -330,6 +339,7 @@ export const localStore = {
     const matches = getStored(STORAGE_KEYS.MATCHES, []);
     const players = getStored(STORAGE_KEYS.PLAYERS, []);
     const allPoints = getStored(STORAGE_KEYS.POINTS, []);
+    const allVotes = getStored(STORAGE_KEYS.VOTES, []);
 
     const match = matches.find(m => m.id === numId);
     if (!match) throw new Error('Partida não encontrada');
@@ -346,8 +356,21 @@ export const localStore = {
       })
       .sort((a, b) => a.id - b.id);
 
+    const votes = allVotes
+      .filter(v => v.match_id === numId)
+      .map(v => {
+        const player = players.find(p => p.id === v.player_id);
+        return {
+          ...v,
+          player_name: player ? player.name : null,
+          player_nickname: player ? player.nickname : null,
+          player_photo: player ? player.photo : null
+        };
+      });
+
     return {
       ...match,
+      votes,
       home_players: players.filter(p => (match.home_player_ids || []).includes(p.id)),
       away_players: players.filter(p => (match.away_player_ids || []).includes(p.id)),
       points
@@ -508,9 +531,69 @@ export const localStore = {
     if (!match) throw new Error('Partida não encontrada');
 
     match.status = 'finished';
+    match.finished_at = NOW();
     setStored(STORAGE_KEYS.MATCHES, matches);
 
     return { message: 'Partida finalizada' };
+  },
+
+  async voteMatch(matchId, playerId) {
+    ensureInit();
+    const numMatchId = parseInt(matchId);
+    const numPlayerId = parseInt(playerId);
+    const matches = getStored(STORAGE_KEYS.MATCHES, []);
+    const match = matches.find(m => m.id === numMatchId);
+    if (!match) throw new Error('Partida não encontrada');
+    if (match.status !== 'finished') throw new Error('A votação popular só é permitida em partidas finalizadas');
+
+    const finishTimeStr = match.finished_at || match.created_at;
+    const finishTime = finishTimeStr ? new Date(finishTimeStr.replace(' ', 'T')).getTime() : Date.now();
+    const elapsed = Date.now() - finishTime;
+    const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+    if (elapsed > TWO_HOURS_MS) {
+      throw new Error('O prazo de 2 horas para votação popular nesta partida já foi encerrado');
+    }
+
+    const user = this._getCurrentUser();
+    let voterId = user ? `user_${user.id}` : localStorage.getItem('volei_device_voter_id');
+    if (!voterId) {
+      voterId = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      localStorage.setItem('volei_device_voter_id', voterId);
+    }
+
+    let votes = getStored(STORAGE_KEYS.VOTES, []);
+    const existingIndex = votes.findIndex(v => v.match_id === numMatchId && v.voter_identifier === voterId);
+    if (existingIndex >= 0) {
+      votes[existingIndex].player_id = numPlayerId;
+      votes[existingIndex].created_at = NOW();
+    } else {
+      votes.push({
+        id: Date.now(),
+        match_id: numMatchId,
+        player_id: numPlayerId,
+        voter_identifier: voterId,
+        created_at: NOW()
+      });
+    }
+    setStored(STORAGE_KEYS.VOTES, votes);
+    return { message: 'Voto registrado com sucesso!' };
+  },
+
+  async getMatchVotes(matchId) {
+    ensureInit();
+    const numMatchId = parseInt(matchId);
+    const votes = getStored(STORAGE_KEYS.VOTES, []);
+    const matchVotes = votes.filter(v => v.match_id === numMatchId);
+    const players = getStored(STORAGE_KEYS.PLAYERS, []);
+    return matchVotes.map(v => {
+      const p = players.find(x => x.id === v.player_id);
+      return {
+        ...v,
+        player_name: p?.name || `Atleta #${v.player_id}`,
+        player_nickname: p?.nickname || p?.name,
+        player_photo: p?.photo || null
+      };
+    });
   },
 
   async deleteMatch(matchId) {

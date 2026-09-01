@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useToast } from '../contexts/ToastContext';
 import { formatDate } from '../utils/constants';
-import { History, Calendar, Trophy, ChevronRight } from 'lucide-react';
+import { getMatchHighlights, processPopularVotes } from '../utils/matchMvp';
+import { History, Calendar, Trophy, ChevronRight, Heart } from 'lucide-react';
 
 export default function HistoryPage() {
   const [matches, setMatches] = useState([]);
@@ -43,6 +44,11 @@ export default function HistoryPage() {
           {matches.map(m => {
             const hw = m.sets?.filter(s => s.winner === 'home').length || 0;
             const aw = m.sets?.filter(s => s.winner === 'away').length || 0;
+            const highlights = getMatchHighlights(m);
+            const mvp = highlights.mvp;
+            const popularData = processPopularVotes(m.votes || [], highlights.playerStats);
+            const popularMvp = popularData.popularMvp;
+
             return (
               <div
                 key={m.id}
@@ -56,18 +62,57 @@ export default function HistoryPage() {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, flex: 1 }}>
                   <div style={{
-                    width: 38, height: 38, borderRadius: 'var(--radius-xs)', background: 'var(--bg-secondary)',
+                    width: 40, height: 40, borderRadius: 'var(--radius-xs)', background: 'var(--bg-secondary)',
                     border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: 'var(--gold)', flexShrink: 0
                   }}>
-                    <Trophy size={16} />
+                    <Trophy size={18} />
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: 14, color: '#FFFFFF', letterSpacing: '0.04em' }}>
-                      {m.home_team} VS {m.away_team}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: 14, color: '#FFFFFF', letterSpacing: '0.04em' }}>
+                        {m.home_team} VS {m.away_team}
+                      </span>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      {formatDate(m.created_at)} · MD{m.max_sets || 5} · {m.home_players?.length || 0} ATLETAS ESCALADOS
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {formatDate(m.created_at)} · MD{m.max_sets || 5}
+                      </span>
+
+                      {mvp && (
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          background: 'rgba(245,183,56,0.12)',
+                          color: 'var(--gold)',
+                          border: '1px solid rgba(245,183,56,0.3)',
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}>
+                          👑 MVP: {mvp.nickname || mvp.name} ({mvp.totalPoints} pts)
+                        </span>
+                      )}
+
+                      {popularMvp && (
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          background: 'rgba(236,72,153,0.12)',
+                          color: '#F472B6',
+                          border: '1px solid rgba(236,72,153,0.3)',
+                          padding: '1px 6px',
+                          borderRadius: 4,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}>
+                          <Heart size={10} /> Galera: {popularMvp.nickname || popularMvp.name}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
